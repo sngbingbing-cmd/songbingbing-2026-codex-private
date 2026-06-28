@@ -1,0 +1,9 @@
+{
+  "title": "示例分析任务",
+  "description": "无业务数据的入门任务，可直接归档。",
+  "taskType": "analysis",
+  "status": "pending",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z",
+  "context": "请先补充分析请求和资料。"
+}
