@@ -70,6 +70,7 @@
     "mac": {
       "category": "public.app-category.business",
       "icon": "build/icon.png",
+      "artifactName": "AI-Native-Data-Workbench-${version}-mac-${arch}.${ext}",
       "target": [
         "dmg",
         "zip"
@@ -78,10 +79,12 @@
       "gatekeeperAssess": false
     },
     "dmg": {
-      "sign": false
+      "sign": false,
+      "artifactName": "AI-Native-Data-Workbench-${version}-mac-${arch}.${ext}"
     },
     "win": {
       "icon": "build/icon.png",
+      "artifactName": "AI-Native-Data-Workbench-${version}-windows-${arch}.${ext}",
       "target": [
         {
           "target": "nsis",
@@ -98,6 +101,7 @@
       ]
     },
     "nsis": {
+      "artifactName": "AI-Native-Data-Workbench-Setup-${version}-windows-${arch}.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
@@ -105,7 +109,6 @@
       "createStartMenuShortcut": true,
       "deleteAppDataOnUninstall": false
     },
-    "artifactName": "${productName}-${version}-${arch}.${ext}",
     "publish": {
       "provider": "github",
       "owner": "sngbingbing-cmd",
