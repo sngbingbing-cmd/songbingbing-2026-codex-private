@@ -6,7 +6,7 @@
 
 ## GitHub Release
 
-运行 `npm run configure:repo -- <owner>`，提交修改，推送 `v1.0.0` 之类的标签。发布工作流会生成 DMG、ZIP 和自动更新元数据。
+运行 `npm run configure:repo -- <owner> <repo>`，提交修改，推送 `v1.0.0` 之类的标签。发布工作流会生成 DMG、ZIP 和自动更新元数据。
 
 ## 正式公开分发
 

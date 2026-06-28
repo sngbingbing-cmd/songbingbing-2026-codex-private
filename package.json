@@ -8,7 +8,7 @@
   "main": "electron/main.cjs",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_GITHUB_USER/ai-native-data-workbench.git"
+    "url": "https://github.com/sngbingbing-cmd/songbingbing-2026-codex-private.git"
   },
   "type": "module",
   "scripts": {
@@ -51,22 +51,38 @@
     "appId": "com.songbingbing.ai-native-data-workbench",
     "productName": "AI原生数据分析工作台",
     "asar": true,
-    "directories": { "output": "release" },
-    "files": ["dist/**/*", "electron/**/*", "package.json"],
-    "extraResources": [{ "from": "workspace-template", "to": "workspace-template" }],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "workspace-template",
+        "to": "workspace-template"
+      }
+    ],
     "mac": {
       "category": "public.app-category.business",
       "icon": "build/icon.png",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false
     },
-    "dmg": { "sign": false },
+    "dmg": {
+      "sign": false
+    },
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "publish": {
       "provider": "github",
-      "owner": "YOUR_GITHUB_USER",
-      "repo": "ai-native-data-workbench",
+      "owner": "sngbingbing-cmd",
+      "repo": "songbingbing-2026-codex-private",
       "releaseType": "release"
     }
   }

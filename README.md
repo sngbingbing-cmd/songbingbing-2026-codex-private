@@ -39,7 +39,7 @@ npm run dist:mac
 ## GitHub 发布与升级
 
 1. 创建 GitHub 仓库。
-2. 运行 `npm run configure:repo -- <GitHub用户名>`。
+2. 运行 `npm run configure:repo -- <GitHub用户名> <仓库名>`。
 3. 推送代码并创建 `v*` 标签，GitHub Actions 会构建 DMG 和 ZIP。
 4. 在仓库 Secrets 中配置 Apple 签名与公证变量后，可发布供他人直接安装的可信版本。
 
