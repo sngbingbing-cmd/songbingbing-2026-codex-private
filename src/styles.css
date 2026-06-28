@@ -29,7 +29,9 @@ button { cursor: pointer; }
 button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid rgba(18, 109, 116, .32); outline-offset: 1px; }
 
 .app-shell { position: relative; display: grid; grid-template-rows: 44px minmax(0, 1fr); width: 100%; height: 100%; background: var(--canvas); }
-.titlebar { -webkit-app-region: drag; display: flex; align-items: center; gap: 14px; min-width: 0; padding: 0 16px 0 92px; color: #f5f8fa; background: #0e1921; border-bottom: 1px solid #263742; }
+.titlebar { -webkit-app-region: drag; display: flex; align-items: center; gap: 14px; min-width: 0; padding: 0 16px; color: #f5f8fa; background: #0e1921; border-bottom: 1px solid #263742; }
+html[data-platform="macos"] .titlebar { padding-left: 92px; }
+html[data-platform="windows"] .titlebar { padding-right: 154px; }
 .titlebar button, .titlebar input, .titlebar .command-search { -webkit-app-region: no-drag; }
 .titlebar > strong { flex: 0 0 auto; font-size: 14px; font-weight: 700; }
 .author-credit { color: #8fa1ad; font-size: 11px; white-space: nowrap; }
@@ -326,5 +328,5 @@ kbd { padding: 1px 4px; border: 0; border-radius: 3px; color: inherit; backgroun
   .stage-signals { display: none; }
   .analysis-canvas { grid-template-columns: 230px 5px minmax(410px, 1fr) 5px 250px; }
   .statusbar { left: 294px; }
-  .author { display: none; }
+  .author, .author-credit { display: none; }
 }

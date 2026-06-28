@@ -20,6 +20,8 @@ const STAGES: Array<{ id: StageId; number: string; title: string; subtitle: stri
 ];
 
 const statusText = { active: "分析中", waiting: "待确认", ready: "输入中", warning: "需处理" } as const;
+const isMac = navigator.userAgent.toLowerCase().includes("mac");
+const shortcutModifier = isMac ? "⌘" : "Ctrl+";
 
 function IconForFile({ file }: { file: FileEntry }) {
   const props = { size: 20, weight: "duotone" as const };
@@ -60,7 +62,7 @@ function TaskNavigator({ tasks, selectedId, query, onQuery, onSelect, onCreate, 
     { label: "已归档", rows: filtered.filter((task) => task.archived) }
   ];
   return <aside className="task-navigator">
-    <AppButton tone="primary" icon={<Plus size={18} />} onClick={onCreate}>新建任务 <kbd>⌘N</kbd></AppButton>
+    <AppButton tone="primary" icon={<Plus size={18} />} onClick={onCreate}>新建任务 <kbd>{shortcutModifier}N</kbd></AppButton>
     <div className="search-field"><MagnifyingGlass size={16} /><input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="搜索任务名称..." /><button title="筛选"><ListChecks size={16} /></button></div>
     <div className="task-groups">
       {groups.map((group) => <section key={group.label} className="task-group">
@@ -86,7 +88,7 @@ function TitleBar({ snapshot, query, onQuery, onCheckUpdate, onWorkspace }: { sn
     <strong>AI原生数据分析工作台</strong><span className="author-credit">宋冰冰 &amp; Codex</span><span className="version">v{snapshot.version}</span>
     <button className="workspace-switcher" onClick={onWorkspace}>{snapshot.workspaceName}<CaretDown size={13} /></button>
     <button className="update-control" onClick={onCheckUpdate}>检查更新<span className={`status-dot ${snapshot.update.status === "available" ? "warning" : "active"}`} /></button>
-    <div className="command-search"><MagnifyingGlass size={15} /><input aria-label="全局搜索" value={query} onChange={(event) => onQuery(event.target.value)} placeholder="⌘K 搜索任务、文件、指标、语义..." /></div>
+    <div className="command-search"><MagnifyingGlass size={15} /><input aria-label="全局搜索" value={query} onChange={(event) => onQuery(event.target.value)} placeholder={`${shortcutModifier}K 搜索任务、文件、指标、语义...`} /></div>
     <Bell size={17} /><span className="avatar">宋</span><span className="author">宋冰冰</span><CaretDown size={12} />
   </header>;
 }
@@ -137,7 +139,7 @@ function AnalysisEditor({ task, onCopy, onSave }: { task: TaskDetail; onCopy: ()
       <PromptSection number="4" title="校验与验证要求"><textarea value={verification} onChange={(event) => setVerification(event.target.value)} /></PromptSection>
       <PromptSection number="5" title="输出要求"><div className="output-checks"><label><input type="checkbox" defaultChecked />分析请求</label><label><input type="checkbox" defaultChecked />分析请求.md 补充</label><label><input type="checkbox" defaultChecked />来源清单</label><label><input type="checkbox" defaultChecked />口径映射</label></div></PromptSection>
     </div>
-    <footer className="editor-actions"><AppButton icon={<Copy size={16} />} onClick={onCopy}>复制调度单</AppButton><AppButton tone="primary" icon={<Robot size={17} />} onClick={onCopy}>执行分析 <kbd>⌘↵</kbd></AppButton></footer>
+    <footer className="editor-actions"><AppButton icon={<Copy size={16} />} onClick={onCopy}>复制调度单</AppButton><AppButton tone="primary" icon={<Robot size={17} />} onClick={onCopy}>执行分析 <kbd>{shortcutModifier}↵</kbd></AppButton></footer>
   </section>;
 }
 
@@ -235,7 +237,7 @@ export function App() {
 
   const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(""), 2400); };
   useEffect(() => { api.getSnapshot().then((data) => { setSnapshot(data); setTask(data.selectedTask || null); if (data.selectedTask) setStage(data.selectedTask.stage); }); }, []);
-  useEffect(() => { const handler = (event: KeyboardEvent) => { if (event.metaKey && event.key.toLowerCase() === "n") { event.preventDefault(); setNewTaskOpen(true); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, []);
+  useEffect(() => { const handler = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") { event.preventDefault(); setNewTaskOpen(true); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, []);
   const activeTask = task;
   const taskIds = useMemo(() => new Set(snapshot?.tasks.map((item) => item.id) || []), [snapshot]);
 

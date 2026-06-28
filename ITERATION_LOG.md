@@ -32,3 +32,11 @@
 - 当前构建未使用 Apple Developer ID 签名和公证，公开分发前需要配置凭据。
 - GitHub 仓库 owner 仍为占位符，建仓后运行 `npm run configure:repo -- <owner>`。
 - 当前 AI 调度以结构化提示词与执行回执为核心，后续可增加可插拔模型/Agent 适配器。
+
+### Windows 补充 - 2026-06-28
+
+- 当前 v1.0.0 增加 Windows x64 支持，不改变工作区格式和七阶段流程。
+- 使用 Windows 原生最小化、最大化和关闭按钮覆盖层，避免与应用品牌栏重复。
+- 增加 NSIS 安装器、便携 ZIP、桌面/开始菜单快捷方式和可选安装目录。
+- CI 扩展为 macOS/Windows 双平台；Release 由两个原生 Runner 构建后统一发布。
+- Windows 安装包暂未进行 Authenticode 签名，首次安装可能触发 SmartScreen 提示。

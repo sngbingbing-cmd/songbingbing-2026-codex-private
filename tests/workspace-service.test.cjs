@@ -36,7 +36,7 @@ describe('WorkspaceService constructor', () => {
 
   it('resolves relative path to absolute', () => {
     const ws = new WorkspaceService('.');
-    assert.ok(ws.workspacePath.startsWith('/'));
+    assert.ok(path.isAbsolute(ws.workspacePath));
   });
 
   it('stores the resolved workspace path', () => {

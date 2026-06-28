@@ -1,13 +1,13 @@
 # AI原生数据分析工作台
 
 作者：宋冰冰 & Codex
-版本：v1.0.0（macOS MVP）
+版本：v1.0.0（macOS / Windows）
 
 一个本地优先的桌面分析工作台。它把资料准备、AI 调度、四件套沉淀、人工验证、正式交付、后台评测和权威语义层放进同一条可追踪流程。应用源代码与业务工作区分离，公开仓库不包含任何真实业务数据。
 
 ## 本地运行
 
-要求：macOS、Node.js 20+、npm 10+。
+开发要求：macOS 或 Windows、Node.js 20+、npm 10+。
 
 ```bash
 npm install
@@ -23,6 +23,16 @@ npm run dist:mac
 ```
 
 产物位于 `release/`。未配置 Apple Developer ID 时为未签名构建，适合本机验证；公开分发建议配置签名与公证。
+
+## 构建 Windows 安装包
+
+请在 Windows x64 或 GitHub Actions `windows-latest` 上运行：
+
+```bash
+npm run dist:win
+```
+
+产物包括可选择安装目录的 NSIS `.exe` 安装器和便携 `.zip`。未配置 Windows 代码签名证书时，SmartScreen 可能显示未知发布者提示。
 
 ## 工作流
 
@@ -40,7 +50,7 @@ npm run dist:mac
 
 1. 创建 GitHub 仓库。
 2. 运行 `npm run configure:repo -- <GitHub用户名> <仓库名>`。
-3. 推送代码并创建 `v*` 标签，GitHub Actions 会构建 DMG 和 ZIP。
+3. 推送代码并创建 `v*` 标签，GitHub Actions 会同时构建 macOS DMG/ZIP 和 Windows EXE/ZIP。
 4. 在仓库 Secrets 中配置 Apple 签名与公证变量后，可发布供他人直接安装的可信版本。
 
 应用通过 `electron-updater` 检查 GitHub Releases。仓库地址未配置时，检查更新会安全返回“当前版本”。详细步骤见 [发布说明](docs/releasing.md)。

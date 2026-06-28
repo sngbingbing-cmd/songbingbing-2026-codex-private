@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
+const path = require('node:path');
 
 let workspaceInfo = null;
 
@@ -23,8 +24,7 @@ function taskStatus(task) {
 
 function relativePath(input) {
   if (!input || !workspaceInfo?.workspacePath) return input || '.';
-  const root = workspaceInfo.workspacePath.replace(/\/$/, '');
-  return input.startsWith(`${root}/`) ? input.slice(root.length + 1) : input;
+  return path.isAbsolute(input) ? path.relative(workspaceInfo.workspacePath, input) : input;
 }
 
 async function listFiles(base, folder) {
@@ -47,7 +47,7 @@ async function normalizeSummary(task) {
   return {
     id: task.id,
     name: task.title || task.id,
-    path: `${workspaceInfo.workspacePath}/${base}`,
+    path: path.join(workspaceInfo.workspacePath, ...base.split('/')),
     stage,
     stageLabel,
     archived: task.status === 'archived',
@@ -140,7 +140,7 @@ async function getSnapshot() {
   return {
     version: versionInfo.version,
     workspacePath: workspaceInfo.workspacePath,
-    workspaceName: workspaceInfo.workspacePath.split('/').pop(),
+    workspaceName: path.basename(workspaceInfo.workspacePath),
     tasks,
     selectedTask: selected ? await getTaskDetail(selected.id) : undefined,
     semantic,

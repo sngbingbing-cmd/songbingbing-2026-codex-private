@@ -25,14 +25,20 @@ const WS_READY_EVENT = `${WS_NAMESPACE}:ready`;
 
 // ── Window ────────────────────────────────────────────────────────
 function createWindow() {
+  const isMac = process.platform === 'darwin';
+  const isWindows = process.platform === 'win32';
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
-    minWidth: 960,
+    minWidth: 1080,
     minHeight: 600,
     title: 'AI原生数据分析工作台',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 18, y: 18 } } : {}),
+    titleBarStyle: isMac ? 'hiddenInset' : isWindows ? 'hidden' : 'default',
+    ...(isMac ? { trafficLightPosition: { x: 18, y: 18 } } : {}),
+    ...(isWindows ? {
+      titleBarOverlay: { color: '#0e1921', symbolColor: '#f5f8fa', height: 44 },
+      autoHideMenuBar: true,
+    } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
