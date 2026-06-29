@@ -529,6 +529,9 @@ describe('Semantic read', () => {
     // Put some semantic files
     fs.writeFileSync(path.join(tmp, '02-权威语义层', 'rule-001.json'), '{}', 'utf-8');
     fs.writeFileSync(path.join(tmp, '02-权威语义层', 'note.md'), '# note', 'utf-8');
+    fs.writeFileSync(path.join(tmp, '02-权威语义层', '指标口径表.md'), '# 指标口径表\n\n| 指标 | 正式定义 | 计算方式 | 权威来源 | 生效日期 | 确认人 |\n|---|---|---|---|---|---|\n', 'utf-8');
+    fs.writeFileSync(path.join(tmp, '02-权威语义层', '实体字典.md'), '# 实体字典\n', 'utf-8');
+    fs.writeFileSync(path.join(tmp, '02-权威语义层', '数据源登记表.md'), '# 数据源登记表\n', 'utf-8');
     fs.writeFileSync(path.join(tmp, '05-评测与验证', 'check.json'), '{}', 'utf-8');
     // Non-semantic file that should be ignored
     fs.writeFileSync(path.join(tmp, '01-投喂区', 'data.csv'), 'a,b,c', 'utf-8');
@@ -559,6 +562,24 @@ describe('Semantic read', () => {
     assert.ok(item);
     assert.equal(typeof item.size, 'number');
     assert.ok(item.modifiedAt);
+  });
+
+  it('creates, updates and publishes a human-confirmed semantic candidate', () => {
+    const candidate = ws.createSemanticCandidate({ type: 'metric', title: '收缴率', proposed: '实收金额/应收金额', evidence: '制度A' });
+    assert.equal(candidate.status, 'pending');
+    const updated = ws.updateSemanticCandidate(candidate.id, { impact: '物业项目' });
+    assert.equal(updated.impact, '物业项目');
+    const published = ws.approveSemanticCandidate(candidate.id, '测试确认人');
+    assert.equal(published.status, 'published');
+    assert.ok(fs.readFileSync(path.join(tmp, '02-权威语义层', '指标口径表.md'), 'utf8').includes('收缴率'));
+    assert.ok(fs.existsSync(path.join(tmp, '02-权威语义层', '已发布记录', `${candidate.id}.json`)));
+  });
+
+  it('retains rejected semantic candidates as audit records', () => {
+    const candidate = ws.createSemanticCandidate({ type: 'entity', title: 'H63阵地', proposed: '经营责任单元' });
+    const rejected = ws.rejectSemanticCandidate(candidate.id, '证据不足');
+    assert.equal(rejected.status, 'rejected');
+    assert.ok(fs.existsSync(path.join(tmp, '02-权威语义层', '已退回记录', `${candidate.id}.json`)));
   });
 });
 

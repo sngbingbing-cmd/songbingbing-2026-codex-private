@@ -32,6 +32,15 @@ const mockApi: WorkbenchApi = {
     await wait();
     return `# 权威语义维护调度单\n\n正式语义只读。仅将AI候选写入：${snapshot.workspacePath}/02-权威语义层/待确认建议`;
   },
+  async createSemanticCandidate(input) {
+    await wait();
+    snapshot.semantic.pending.push({ id: `semantic-${Date.now()}`, type: input.type || "metric", title: input.title || "未命名候选", proposed: input.proposed || "", evidence: input.evidence || "", impact: input.impact || "" });
+    return structuredClone(snapshot.semantic);
+  },
+  async updateSemanticCandidate(id, patch) { await wait(); snapshot.semantic.pending = snapshot.semantic.pending.map((item) => item.id === id ? { ...item, ...patch } : item); return structuredClone(snapshot.semantic); },
+  async approveSemanticCandidate(id, _confirmedBy) { await wait(); snapshot.semantic.pending = snapshot.semantic.pending.filter((item) => item.id !== id); return structuredClone(snapshot.semantic); },
+  async rejectSemanticCandidate(id, _reason) { await wait(); snapshot.semantic.pending = snapshot.semantic.pending.filter((item) => item.id !== id); return structuredClone(snapshot.semantic); },
+  async uploadSemanticMaterials() { await wait(); return 2; },
   async generateWordReport(_id) {
     await wait(500);
     return { outputPath: `${snapshot.workspacePath}/04-分析任务/${_id}/outputs/示例经营分析.docx`, outputName: "示例经营分析.docx", sourcePath: `${snapshot.workspacePath}/04-分析任务/${_id}/outputs/示例经营分析.md`, task: structuredClone(mockDetail) };
@@ -40,6 +49,7 @@ const mockApi: WorkbenchApi = {
   async writeFeedback(_id, _category, _content) { await wait(); return structuredClone(mockDetail); },
   async runEvaluation(_id) { await wait(400); return structuredClone({ ...mockDetail, evaluation: { ...mockDetail.evaluation, status: "通过", score: 86, checkedAt: new Date().toLocaleString("zh-CN") } }); },
   async checkForUpdates() { await wait(500); return { status: "current" }; },
+  async downloadUpdate() { await wait(900); return { downloaded: true }; },
   async installUpdate() { await wait(); },
   async getExternalSources(_id) { await wait(); return structuredClone(externalSources); },
   async linkExternalSource(_id, sourcePath, label) {

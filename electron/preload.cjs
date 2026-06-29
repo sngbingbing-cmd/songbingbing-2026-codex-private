@@ -147,6 +147,9 @@ async function semanticSnapshot() {
   const pendingEntries = await invoke('file:list-directory', '02-权威语义层/待确认建议');
   const pending = await Promise.all(pendingEntries.filter((entry) => entry.isFile && /\.(md|json)$/i.test(entry.name)).map(async (entry, index) => {
     const stored = await invoke('file:read', `02-权威语义层/待确认建议/${entry.name}`);
+    if (entry.name.toLowerCase().endsWith('.json')) {
+      try { return JSON.parse(stored?.content || '{}'); } catch { /* legacy fallback below */ }
+    }
     return {
       id: `semantic-pending-${index}`,
       type: 'AI候选',
@@ -220,6 +223,27 @@ const workbench = {
     const result = await invoke('semantic:generate-prompt');
     return result.prompt;
   },
+  async createSemanticCandidate(input) {
+    await invoke('semantic:create-candidate', input);
+    return semanticSnapshot();
+  },
+  async updateSemanticCandidate(id, patch) {
+    await invoke('semantic:update-candidate', id, patch);
+    return semanticSnapshot();
+  },
+  async approveSemanticCandidate(id, confirmedBy) {
+    await invoke('semantic:approve-candidate', id, confirmedBy);
+    return semanticSnapshot();
+  },
+  async rejectSemanticCandidate(id, reason) {
+    await invoke('semantic:reject-candidate', id, reason);
+    return semanticSnapshot();
+  },
+  async uploadSemanticMaterials() {
+    const files = await invoke('file:select', { multi: true });
+    if (files.length) await invoke('file:sync', files, '02-权威语义层/待确认材料');
+    return files.length;
+  },
   async generateWordReport(id) {
     const result = await invoke('report:generate-word', id);
     return { ...result, task: await getTaskDetail(id) };
@@ -263,6 +287,9 @@ const workbench = {
   async checkForUpdates() {
     const result = await invoke('update:check');
     return result.available ? { status: 'available', version: result.version } : { status: 'current' };
+  },
+  async downloadUpdate() {
+    return invoke('update:download');
   },
   async installUpdate() {
     await invoke('update:install');

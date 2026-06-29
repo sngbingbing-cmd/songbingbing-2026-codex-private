@@ -14,6 +14,8 @@ const { version } = require('../package.json');
 // ── Logging ──────────────────────────────────────────────────────
 autoUpdater.logger = log;
 autoUpdater.logger.transports.file.level = 'info';
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = true;
 log.info('App starting...');
 
 // ── State ─────────────────────────────────────────────────────────
@@ -281,6 +283,26 @@ IPC_HANDLERS['semantic:generate-prompt'] = async () => {
   }
 };
 
+IPC_HANDLERS['semantic:create-candidate'] = async (_event, input) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try { return asResult(workspaceService.createSemanticCandidate(input)); } catch (e) { return asError(e); }
+};
+
+IPC_HANDLERS['semantic:update-candidate'] = async (_event, id, patch) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try { return asResult(workspaceService.updateSemanticCandidate(id, patch)); } catch (e) { return asError(e); }
+};
+
+IPC_HANDLERS['semantic:approve-candidate'] = async (_event, id, confirmedBy) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try { return asResult(workspaceService.approveSemanticCandidate(id, confirmedBy)); } catch (e) { return asError(e); }
+};
+
+IPC_HANDLERS['semantic:reject-candidate'] = async (_event, id, reason) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try { return asResult(workspaceService.rejectSemanticCandidate(id, reason)); } catch (e) { return asError(e); }
+};
+
 // Dispatch & Receipt
 IPC_HANDLERS['dispatch:write'] = async (_event, taskId, dispatchData) => {
   if (!workspaceService) return asError(new Error('Workspace not initialized'));
@@ -398,6 +420,16 @@ IPC_HANDLERS['update:check'] = async () => {
   }
 };
 
+IPC_HANDLERS['update:download'] = async () => {
+  if (IS_DEV) return asResult({ downloaded: false });
+  try {
+    await autoUpdater.downloadUpdate();
+    return asResult({ downloaded: true });
+  } catch (e) {
+    return asError(e);
+  }
+};
+
 IPC_HANDLERS['update:install'] = async () => {
   if (IS_DEV) return asResult({ installed: false });
   autoUpdater.quitAndInstall();
@@ -425,8 +457,6 @@ function setupAutoUpdater() {
     return;
   }
 
-  autoUpdater.checkForUpdatesAndNotify();
-
   autoUpdater.on('update-available', (info) => {
     log.info(`Update available: ${info.version}`);
     if (mainWindow) {
@@ -438,11 +468,10 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('update-downloaded', () => {
-    log.info('Update downloaded, will install on quit');
+    log.info('Update downloaded, waiting for user confirmation');
     if (mainWindow) {
       mainWindow.webContents.send(WS_READY_EVENT, { type: 'update-downloaded' });
     }
-    autoUpdater.quitAndInstall();
   });
 
   autoUpdater.on('error', (err) => {

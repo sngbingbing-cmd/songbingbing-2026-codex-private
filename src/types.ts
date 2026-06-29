@@ -54,7 +54,19 @@ export interface TaskDetail extends TaskSummary {
 
 export interface SemanticSnapshot {
   docs: Array<{ id: string; title: string; count: number; incomplete: number; content: string }>;
-  pending: Array<{ id: string; type: string; title: string; proposed: string; evidence: string; impact: string }>;
+  pending: SemanticCandidate[];
+}
+
+export interface SemanticCandidate {
+  id: string;
+  type: "metric" | "entity" | "source" | string;
+  typeLabel?: string;
+  title: string;
+  proposed: string;
+  evidence: string;
+  impact: string;
+  details?: Record<string, string>;
+  status?: string;
 }
 
 export interface AppSnapshot {
@@ -64,7 +76,7 @@ export interface AppSnapshot {
   tasks: TaskSummary[];
   selectedTask?: TaskDetail;
   semantic: SemanticSnapshot;
-  update: { status: "idle" | "checking" | "available" | "current" | "error"; version?: string };
+  update: { status: "idle" | "checking" | "available" | "downloading" | "downloaded" | "installing" | "current" | "error"; version?: string };
 }
 
 export interface ExternalSourceInfo {
@@ -97,6 +109,11 @@ export interface WorkbenchApi {
   revealPath(path: string): Promise<void>;
   generatePrompt(id: string, kind: PromptKind, draft?: PromptDraft): Promise<string>;
   generateSemanticPrompt(): Promise<string>;
+  createSemanticCandidate(input: Partial<SemanticCandidate>): Promise<SemanticSnapshot>;
+  updateSemanticCandidate(id: string, patch: Partial<SemanticCandidate>): Promise<SemanticSnapshot>;
+  approveSemanticCandidate(id: string, confirmedBy: string): Promise<SemanticSnapshot>;
+  rejectSemanticCandidate(id: string, reason: string): Promise<SemanticSnapshot>;
+  uploadSemanticMaterials(): Promise<number>;
   generateWordReport(id: string): Promise<{ outputPath: string; outputName: string; sourcePath: string; task: TaskDetail }>;
   dispatchPrompt(id: string, kind: "analysis" | "reanalysis", draft?: PromptDraft): Promise<string>;
   getExternalSources(id: string): Promise<ExternalSourceInfo[]>;
@@ -108,6 +125,7 @@ export interface WorkbenchApi {
   writeFeedback(id: string, category: string, content: string): Promise<TaskDetail>;
   runEvaluation(id: string): Promise<TaskDetail>;
   checkForUpdates(): Promise<{ status: string; version?: string }>;
+  downloadUpdate(): Promise<{ downloaded: boolean }>;
   installUpdate(): Promise<void>;
 }
 

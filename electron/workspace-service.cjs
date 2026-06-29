@@ -16,6 +16,20 @@ const LEGACY_DIRS = [
 const TASKS_DIR = '04-分析任务';
 const EXTERNAL_SOURCES_FILE = 'external-sources.json';
 const EXTERNAL_INVENTORY_FILE = 'external-source-inventory.json';
+const SEMANTIC_ROOT = '02-权威语义层';
+const SEMANTIC_CANDIDATES_DIR = '待确认建议';
+const SEMANTIC_PUBLISHED_DIR = '已发布记录';
+const SEMANTIC_REJECTED_DIR = '已退回记录';
+
+const SEMANTIC_TARGETS = {
+  metric: { file: '指标口径表.md', label: '指标口径', columns: ['title', 'proposed', 'method', 'evidence', 'effectiveDate', 'confirmedBy'] },
+  entity: { file: '实体字典.md', label: '实体定义', columns: ['title', 'entityType', 'aliases', 'parentEntity', 'evidence', 'confirmedBy'] },
+  source: { file: '数据源登记表.md', label: '数据源', columns: ['title', 'owner', 'frequency', 'cutoff', 'trust', 'notes'] },
+};
+
+function safeTableCell(value) {
+  return String(value || '').replace(/\|/g, '／').replace(/[\r\n]+/g, ' ').trim();
+}
 
 class WorkspaceService {
   /**
@@ -442,6 +456,80 @@ class WorkspaceService {
     }
 
     return result;
+  }
+
+  createSemanticCandidate(input) {
+    const target = SEMANTIC_TARGETS[input?.type];
+    if (!target) throw new Error('请选择指标口径、实体定义或数据源');
+    if (!String(input?.title || '').trim()) throw new Error('请填写语义名称');
+    if (!String(input?.proposed || '').trim()) throw new Error('请填写建议定义');
+    const id = `semantic-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    const record = {
+      id,
+      type: input.type,
+      typeLabel: target.label,
+      title: String(input.title).trim(),
+      proposed: String(input.proposed).trim(),
+      evidence: String(input.evidence || '').trim(),
+      impact: String(input.impact || '').trim(),
+      details: input.details && typeof input.details === 'object' ? input.details : {},
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const filePath = this.resolvePath(SEMANTIC_ROOT, SEMANTIC_CANDIDATES_DIR, `${id}.json`);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(record, null, 2), 'utf8');
+    return record;
+  }
+
+  updateSemanticCandidate(id, patch) {
+    const filePath = this.resolvePath(SEMANTIC_ROOT, SEMANTIC_CANDIDATES_DIR, `${id}.json`);
+    if (!fs.existsSync(filePath)) throw new Error('待确认语义候选不存在');
+    const current = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const next = {
+      ...current,
+      title: String(patch?.title ?? current.title).trim(),
+      proposed: String(patch?.proposed ?? current.proposed).trim(),
+      evidence: String(patch?.evidence ?? current.evidence).trim(),
+      impact: String(patch?.impact ?? current.impact).trim(),
+      details: patch?.details && typeof patch.details === 'object' ? patch.details : current.details,
+      updatedAt: new Date().toISOString(),
+    };
+    if (!next.title || !next.proposed) throw new Error('语义名称和建议定义不能为空');
+    fs.writeFileSync(filePath, JSON.stringify(next, null, 2), 'utf8');
+    return next;
+  }
+
+  approveSemanticCandidate(id, confirmedBy = '人工确认') {
+    const filePath = this.resolvePath(SEMANTIC_ROOT, SEMANTIC_CANDIDATES_DIR, `${id}.json`);
+    if (!fs.existsSync(filePath)) throw new Error('待确认语义候选不存在');
+    const record = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const target = SEMANTIC_TARGETS[record.type];
+    if (!target) throw new Error('语义候选类型无效');
+    const values = { ...record.details, ...record, confirmedBy, notes: record.details?.notes || record.impact };
+    const row = `| ${target.columns.map((column) => safeTableCell(values[column])).join(' | ')} |\n`;
+    const formalPath = this.resolvePath(SEMANTIC_ROOT, target.file);
+    if (!fs.existsSync(formalPath)) throw new Error(`正式语义文件不存在: ${target.file}`);
+    fs.appendFileSync(formalPath, row, 'utf8');
+    const published = { ...record, status: 'published', confirmedBy, publishedAt: new Date().toISOString(), targetFile: target.file };
+    const archivePath = this.resolvePath(SEMANTIC_ROOT, SEMANTIC_PUBLISHED_DIR, `${id}.json`);
+    fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+    fs.writeFileSync(archivePath, JSON.stringify(published, null, 2), 'utf8');
+    fs.unlinkSync(filePath);
+    return published;
+  }
+
+  rejectSemanticCandidate(id, reason = '') {
+    const filePath = this.resolvePath(SEMANTIC_ROOT, SEMANTIC_CANDIDATES_DIR, `${id}.json`);
+    if (!fs.existsSync(filePath)) throw new Error('待确认语义候选不存在');
+    const record = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const rejected = { ...record, status: 'rejected', rejectReason: String(reason), rejectedAt: new Date().toISOString() };
+    const archivePath = this.resolvePath(SEMANTIC_ROOT, SEMANTIC_REJECTED_DIR, `${id}.json`);
+    fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+    fs.writeFileSync(archivePath, JSON.stringify(rejected, null, 2), 'utf8');
+    fs.unlinkSync(filePath);
+    return rejected;
   }
 
   // ── External source management ────────────────────────────────────
@@ -890,9 +978,10 @@ class WorkspaceService {
   generateSemanticMaintenancePrompt() {
     const semanticRoot = this.resolvePath('02-权威语义层');
     const candidateRoot = path.join(semanticRoot, '待确认建议');
+    const materialRoot = path.join(semanticRoot, '待确认材料');
     const formalPaths = ['指标口径表.md', '实体字典.md', '数据源登记表.md']
       .map((name) => path.join(semanticRoot, name));
-    const candidatePath = path.join(candidateRoot, `AI语义维护候选_${new Date().toISOString().slice(0, 10)}.md`);
+    const candidatePath = path.join(candidateRoot, `semantic-${Date.now()}-ai.json`);
     const prompt = [
       '# AI原生数据分析工作台｜权威语义维护调度单',
       '',
@@ -900,6 +989,7 @@ class WorkspaceService {
       `- 当前工作区唯一根目录: ${this.workspacePath}`,
       `- 正式权威语义文件（只读）:`,
       ...formalPaths.map((item) => `  - ${item}`),
+      `- 人工上传的待整理材料（只读）: ${materialRoot}`,
       `- 唯一可写候选目录: ${candidateRoot}`,
       `- 本次候选文件: ${candidatePath}`,
       '',
@@ -908,8 +998,8 @@ class WorkspaceService {
       '## 维护任务',
       '1. 读取三个正式语义文件，检查缺失字段、重复定义、口径冲突、过期来源和缺少证据的条目。',
       '2. 结合工作区已有分析任务的四件套、验证反馈和语义候选，只提炼可复用且有来源支撑的建议。',
-      '3. 对每条建议写明：类型、建议定义、证据路径、适用范围、冲突影响、可信度和需要人工确认的问题。',
-      `4. 将全部结果写入 ${candidatePath}；不得写入其他位置。`,
+      '3. 每条候选必须单独写成JSON文件，字段为：id、type(metric/entity/source)、typeLabel、title、proposed、evidence、impact、details、status(pending)、createdAt、updatedAt。',
+      `4. 第一条候选写入 ${candidatePath}；多条候选使用不同的 semantic-<时间>-ai.json 文件。不得写入其他位置。`,
       '5. 没有可靠候选时也要写入检查结论，明确说明未发现可发布内容。',
       '',
       '最终回复必须列出实际写入的绝对路径。',
