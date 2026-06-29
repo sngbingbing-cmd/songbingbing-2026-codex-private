@@ -6,7 +6,7 @@
 
 Windows x64 请在 Windows 主机运行 `npm run dist:win`。生成 NSIS 安装器和 ZIP；没有 Authenticode 证书时可能出现 SmartScreen 提示。
 
-当前仓库为私有仓库时，GitHub Release 下载需要登录；应用内自动更新也无法匿名读取私有 Release。仓库公开后可直接启用更新，私有阶段建议从 Release 页面手动下载安装。
+当前公开仓库的 GitHub Release 可匿名下载，应用内更新也可以读取公开的版本信息。若未来改回私有仓库，下载将需要登录，应用内更新也无法匿名读取 Release。
 
 ## GitHub Release
 

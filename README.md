@@ -5,6 +5,20 @@
 
 一个本地优先的桌面分析工作台。它把资料准备、AI 调度、四件套沉淀、人工验证、正式交付、后台评测和权威语义层放进同一条可追踪流程。应用源代码与业务工作区分离，公开仓库不包含任何真实业务数据。
 
+## 下载安装
+
+请前往 [最新版本下载页](https://github.com/sngbingbing-cmd/songbingbing-2026-codex-private/releases/latest)：
+
+- macOS（Apple 芯片）：下载名称包含 `mac-arm64.dmg` 的文件。
+- Windows 10/11（x64）：下载名称包含 `Setup` 和 `windows-x64.exe` 的安装程序。
+- Windows 免安装使用：下载名称包含 `windows-x64.zip` 的文件并解压运行。
+
+当前安装包未购买商业代码签名证书。macOS 首次启动时可在“系统设置 -> 隐私与安全性”中确认打开；Windows 出现 SmartScreen 提示时，可选择“更多信息 -> 仍要运行”。
+
+本应用不内置 AI 模型。使用者需要自行准备能够读取本机文件的 Agent，例如 Codex、Claude Code 或其他本地 AI 工具；工作台负责组织资料、生成调度提示词、记录验证过程和沉淀权威语义。
+
+首次启动会在 `~/Documents/AI原生数据分析工作台-应用版` 创建本地工作区和无业务数据的示例任务。业务资料默认只保存在使用者自己的电脑上。
+
 ## 本地运行
 
 开发要求：macOS 或 Windows、Node.js 20+、npm 10+。
@@ -14,7 +28,7 @@ npm install
 npm run dev
 ```
 
-首次启动会在 `~/Documents/AI原生数据分析工作台` 创建空白工作区和一个无业务数据的示例任务。
+开发模式同样使用本机工作区，请勿把真实业务资料提交到源码仓库。
 
 ## 构建 macOS 安装包
 
@@ -51,15 +65,15 @@ npm run dist:win
 1. 创建 GitHub 仓库。
 2. 运行 `npm run configure:repo -- <GitHub用户名> <仓库名>`。
 3. 推送代码并创建 `v*` 标签，GitHub Actions 会同时构建 macOS DMG/ZIP 和 Windows EXE/ZIP。
-4. 在仓库 Secrets 中配置 Apple 签名与公证变量后，可发布供他人直接安装的可信版本。
+4. 如需消除系统的未知发布者提示，可在仓库 Secrets 中配置 Apple 签名与公证变量。
 
-应用通过 `electron-updater` 检查 GitHub Releases。仓库地址未配置时，检查更新会安全返回“当前版本”。详细步骤见 [发布说明](docs/releasing.md)。
+应用通过 `electron-updater` 检查公开的 GitHub Releases。详细步骤见 [发布说明](docs/releasing.md)。
 
 ## 数据边界
 
 - 源码仓库：应用代码、空白模板、公开文档和测试。
 - 用户工作区：原始资料、分析任务、执行回执、权威语义和输出物。
-- 应用只读写用户明确选择的工作区；所有相对路径均经过越界校验。
+- 应用读写本机工作区；用户主动关联的外部资料目录只做扫描和只读引用。所有工作区相对路径均经过越界校验。
 
 ## 验证
 
