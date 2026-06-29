@@ -115,8 +115,14 @@ async function getTaskDetail(id) {
     validationFiles,
     requiredDocs,
     validation,
-    sourceCoverage: Math.min(100, 35 + rawFiles.length * 10),
-    semanticCoverage: rawFiles.length ? 72 : 40,
+    sourceCoverage: (() => {
+      // Real source coverage: 60% from required docs fill + 40% from raw data presence
+      const filledCount = requiredDocs.filter((doc) => doc.filled).length;
+      const docScore = requiredDocs.length ? (filledCount / requiredDocs.length) * 60 : 0;
+      const rawScore = rawFiles.length > 0 ? 40 : 10;
+      return Math.round(docScore + rawScore);
+    })(),
+    semanticCoverage: 0, // correctly computed in getSnapshot from semantic layer data
     inputCompleteness: completeness >= 3 ? '高' : completeness >= 1 ? '中' : '低',
     firstRun: { status: task.hasReceipt ? '已完成' : dispatchKind === 'analysis' ? '等待回执' : '未执行', time: receipt?.completedAt || receipt?.updatedAt, receipt: receipt?.summary },
     reanalysis: { status: receiptKind === 'reanalysis' ? '已完成' : dispatchKind === 'reanalysis' ? '等待回执' : '未执行', time: receiptKind === 'reanalysis' ? (receipt?.completedAt || receipt?.updatedAt) : undefined },
@@ -169,12 +175,21 @@ async function getSnapshot() {
   const tasks = await Promise.all(rawTasks.map(normalizeSummary));
   const selected = tasks.find((task) => !task.archived) || tasks[0];
   const [versionInfo, semantic] = await Promise.all([invoke('app:version'), semanticSnapshot()]);
+  const selectedTask = selected ? await getTaskDetail(selected.id) : undefined;
+  // Compute real semantic coverage from semantic layer data
+  if (selectedTask && semantic) {
+    const totalEntries = semantic.docs.reduce((sum, doc) => sum + doc.count, 0);
+    const incompleteEntries = semantic.docs.reduce((sum, doc) => sum + doc.incomplete, 0);
+    selectedTask.semanticCoverage = totalEntries > 0
+      ? Math.round(((totalEntries - incompleteEntries) / totalEntries) * 100)
+      : 0;
+  }
   return {
     version: versionInfo.version,
     workspacePath: workspaceInfo.workspacePath,
     workspaceName: path.basename(workspaceInfo.workspacePath),
     tasks,
-    selectedTask: selected ? await getTaskDetail(selected.id) : undefined,
+    selectedTask,
     semantic,
     update: { status: 'idle' },
   };
@@ -287,10 +302,37 @@ const workbench = {
     return getTaskDetail(id);
   },
   async runEvaluation(id) {
-    const checkedAt = new Date().toISOString();
-    const evaluation = { status: '通过', score: 86, checkedAt, checks: [] };
-    await invoke('file:save', `04-分析任务/${id}/validation/evaluation.json`, JSON.stringify(evaluation, null, 2));
+    // ── Real evaluation: score from validation items, docs, outputs, receipt ──
     const detail = await getTaskDetail(id);
+    const checks = [];
+
+    // 1. Required docs completeness (30 points)
+    const filledDocs = detail.requiredDocs.filter((d) => d.filled).length;
+    const totalDocs = detail.requiredDocs.length || 4;
+    const docScore = Math.round((filledDocs / totalDocs) * 30);
+    checks.push({ id: 'docs', title: '必填文档完整度', status: filledDocs === totalDocs ? 'pass' : 'warn', detail: `${filledDocs}/${totalDocs} 已填写`, score: docScore, max: 30 });
+
+    // 2. Validation items resolved (40 points)
+    const totalValidation = detail.validation.length;
+    const resolvedValidation = detail.validation.filter((v) => v.status === 'resolved').length;
+    const validationScore = totalValidation === 0 ? 40 : Math.round((resolvedValidation / totalValidation) * 40);
+    checks.push({ id: 'validation', title: '验证项处理', status: resolvedValidation === totalValidation ? 'pass' : 'warn', detail: totalValidation === 0 ? '无待验证项' : `${resolvedValidation}/${totalValidation} 已处理`, score: validationScore, max: 40 });
+
+    // 3. Output files exist (20 points)
+    const outputScore = detail.outputs.length > 0 ? 20 : 0;
+    checks.push({ id: 'outputs', title: '输出物生成', status: outputScore > 0 ? 'pass' : 'fail', detail: `${detail.outputs.length} 个输出文件`, score: outputScore, max: 20 });
+
+    // 4. Receipt / dispatch completed (10 points)
+    const hasReceipt = detail.firstRun.status === '已完成';
+    const receiptScore = hasReceipt ? 10 : 0;
+    checks.push({ id: 'receipt', title: '分析回执', status: hasReceipt ? 'pass' : 'fail', detail: detail.firstRun.status, score: receiptScore, max: 10 });
+
+    const totalScore = docScore + validationScore + outputScore + receiptScore;
+    const status = totalScore >= 80 ? '通过' : totalScore >= 60 ? '有条件通过' : '不通过';
+    const checkedAt = new Date().toLocaleString('zh-CN');
+    const evaluation = { status, score: totalScore, checkedAt, checks };
+
+    await invoke('file:save', `04-分析任务/${id}/validation/evaluation.json`, JSON.stringify(evaluation, null, 2));
     return { ...detail, evaluation };
   },
   async checkForUpdates() {
