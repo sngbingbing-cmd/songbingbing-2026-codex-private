@@ -356,6 +356,8 @@ function IncompleteBar({ content, docName, onRefresh, notify }: { content: strin
 
 function FormalView({ snapshot, selectedId, setSelectedId, onRefresh, notify }: { snapshot: AppSnapshot; selectedId: string; setSelectedId: (id: string) => void; onRefresh: () => Promise<void>; notify: (m: string) => void }) {
   const selectedDoc = snapshot.semantic.docs.find((d: any) => d.id === selectedId);
+  const [query, setQuery] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   if (!selectedDoc) return <section className="semantic-layout"><div><h2>正式语义文件</h2>{snapshot.semantic.docs.map((doc: any) => <button className={`semantic-doc-row ${doc.id === selectedId ? "selected" : ""}`} key={doc.id} onClick={() => setSelectedId(doc.id)}><BookOpenText size={20} /><span><strong>{doc.title}</strong><small>{doc.count}条正式定义</small></span><CaretRight size={15} /></button>)}</div><div className="semantic-preview-empty">选择左侧文件查看语义条目</div></section>;
   const content = selectedDoc.content || '';
   const lines = content.split('\n');
@@ -363,9 +365,56 @@ function FormalView({ snapshot, selectedId, setSelectedId, onRefresh, notify }: 
   if (!headerLine) return <pre>{content}</pre>;
   const colNames = headerLine.split('|').filter((c: string) => c.trim()).map((c: string) => c.trim());
   const firstCol = colNames[0];
-  const dataLines = lines.slice(4).filter((l: string) => l.trim().startsWith('|') && !/^\\|\[\\s:|-]\+\\|\$/.test(l.trim()));
-  const items = dataLines.map((l: string) => { const cells = l.split('|').filter((c: string) => c.trim()); const obj: Record<string,string> = {}; colNames.forEach((c: string, i: number) => { if (cells[i+1]) obj[c] = cells[i+1].trim(); }); return obj; }).filter((o: Record<string,string>) => Object.keys(o).length > 0);
-  return <section className="semantic-layout"><div><h2>正式语义文件</h2>{snapshot.semantic.docs.map((doc: any) => <button className={`semantic-doc-row ${doc.id === selectedId ? "selected" : ""}`} key={doc.id} onClick={() => setSelectedId(doc.id)}><BookOpenText size={20} /><span><strong>{doc.title}</strong><small>{doc.count}条正式定义</small></span><CaretRight size={15} /></button>)}</div><div className="formal-view-right"><h2>{selectedDoc.title}</h2><IncompleteBar content={content} docName={selectedDoc.title.replace(/\.md$/,'')} onRefresh={onRefresh} notify={notify} /><div className="semantic-card-list">{items.map((item: Record<string,string>, idx: number) => <div className="semantic-card-item" key={idx}><div className="sci-header"><strong>{item[firstCol] || `条目${idx+1}`}</strong></div><div className="sci-fields">{Object.entries(item).filter(([k]) => k !== firstCol).map(([k, v]) => <div className="sci-field" key={k}><span className="sci-label">{k}</span><span className="sci-value">{v || ''}</span></div>)}</div></div>)}</div></div></section>;
+  const dataLines = lines.slice(4).filter((l: string) => l.trim().startsWith('|') && !/^\|[\s:|-]+\|$/.test(l.trim()));
+  const allItems = dataLines.map((l: string) => { const cells = l.split('|').filter((c: string) => c.trim()); const obj: Record<string,string> = {}; colNames.forEach((c: string, i: number) => { if (cells[i+1]) obj[c] = cells[i+1].trim(); }); return obj; }).filter((o: Record<string,string>) => Object.keys(o).length > 0);
+
+  const filtered = query.trim() ? allItems.filter((item: Record<string,string>) => (item[firstCol] || '').toLowerCase().includes(query.toLowerCase()) || Object.values(item).some((v: string) => v.toLowerCase().includes(query.toLowerCase()))) : allItems;
+  const [page, setPage] = useState(0);
+  const pageSize = 20;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  useEffect(() => { setPage(0); setExpandedId(null); }, [query, selectedId]);
+  const paged = filtered.slice(page * pageSize, (page + 1) * pageSize);
+
+  // Determine wide columns (long text)
+  const wideCols = new Set<string>();
+  allItems.forEach(item => { Object.entries(item).forEach(([k, v]) => { if ((v||'').length > 60) wideCols.add(k); }); });
+
+  return <section className="semantic-layout"><div><h2>正式语义文件</h2>{snapshot.semantic.docs.map((doc: any) => <button className={`semantic-doc-row ${doc.id === selectedId ? "selected" : ""}`} key={doc.id} onClick={() => setSelectedId(doc.id)}><BookOpenText size={20} /><span><strong>{doc.title}</strong><small>{doc.count}条正式定义</small></span><CaretRight size={15} /></button>)}</div>
+    <div className="formal-view-right">
+      <h2>{selectedDoc.title}<span className="fvr-count">{filtered.length}/{allItems.length} 条</span></h2>
+
+      {/* Search bar */}
+      <div className="fvr-search"><MagnifyingGlass size={14} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`搜索 ${colNames.slice(0,3).join(' / ')}…`} /><span className="fvr-search-hint">{filtered.length !== allItems.length ? `筛选 ${filtered.length} 条` : `${allItems.length} 条`}</span></div>
+
+      {/* Incomplete bar */}
+      <IncompleteBar content={content} docName={selectedDoc.title.replace(/\.md$/,'')} onRefresh={onRefresh} notify={notify} />
+
+      {/* Data table */}
+      <div className="fvr-table-wrap">
+        <table className="fvr-table"><thead><tr><th className="fvr-th-name">{firstCol}</th>{colNames.filter(c => c !== firstCol).slice(0, 2).map(c => <th key={c} className={wideCols.has(c) ? "fvr-th-wide" : ""}>{c}</th>)}<th className="fvr-th-action">操作</th></tr></thead>
+        <tbody>{paged.length === 0 ? <tr><td colSpan={4} className="fvr-empty">无匹配结果</td></tr> : paged.map((item: Record<string,string>, idx: number) => {
+          const rowKey = item[firstCol] || `r-${idx}`;
+          const isExp = expandedId === rowKey;
+          const hasEmpty = colNames.some(c => { const v = item[c] || ''; return !v.trim() || /待确认|待补充|未知|todo/i.test(v); });
+          return <tr key={idx} className={hasEmpty ? "has-empty" : ""}>
+            <td className="fvr-td-name"><span className="fvr-exp-icon" onClick={() => setExpandedId(isExp ? null : rowKey)}>{isExp ? <CaretDown size={12} /> : <CaretRight size={12} />}</span><strong title={item[firstCol]} onClick={() => setExpandedId(isExp ? null : rowKey)}>{item[firstCol] || `条目${idx+1}`}</strong></td>
+            {colNames.filter(c => c !== firstCol).slice(0, 2).map(c => <td key={c} className={wideCols.has(c) ? "fvr-td-wide" : ""} title={item[c]}>{wideCols.has(c) && !isExp ? ((item[c] || '').slice(0, 50) + (((item[c]||'').length > 50) ? '…' : '')) : (item[c] || '-')}</td>)}
+            <td className="fvr-td-action"><button className="fvr-btn-detail" onClick={() => setExpandedId(isExp ? null : rowKey)}>{isExp ? '收起' : '详情'}</button></td>
+          </tr>;
+        })}</tbody></table>
+
+        {/* Expanded detail card */}
+        {expandedId ? (() => {
+          const item = paged.find((it: Record<string, string>) => (it[firstCol] || `r-${paged.indexOf(it)}`) === expandedId);
+          if (!item) return null;
+          return <div className="fvr-detail-card"><header><strong>{item[firstCol]}</strong><button onClick={() => setExpandedId(null)}>✕</button></header><dl>{colNames.filter(c => c !== firstCol).map(c => <div key={c} className={`fvr-dl-row ${!item[c]?.trim() ? 'empty' : ''}`}><dt>{c}</dt><dd dangerouslySetInnerHTML={{ __html: (item[c] || '<em>待完善</em>').replace(/\n/g, '<br/>') }} /></div>)}</dl></div>;
+        })() : null}
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 ? <div className="fvr-pagination"><button disabled={page <= 0} onClick={() => setPage(p => p - 1)}>‹ 上一页</button><span>{page + 1} / {totalPages}</span><button disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>下一页 ›</button></div> : null}
+    </div>
+  </section>;
 }
 
 function SemanticCenter({ snapshot, onBack, onRefresh, onSemanticChange, notify }: { snapshot: AppSnapshot; onBack: () => void; onRefresh: () => Promise<void>; onSemanticChange: (semantic: SemanticSnapshot) => void; notify: (m: string) => void }) {

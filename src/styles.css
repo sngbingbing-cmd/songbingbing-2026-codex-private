@@ -461,3 +461,171 @@ kbd { padding: 1px 4px; border: 0; border-radius: 3px; color: inherit; backgroun
   .statusbar { left: 294px; }
   .author, .author-credit { display: none; }
 }
+
+/* ═══════ Formal View Right Panel — 指标口径表 ═══════ */
+.formal-view-right {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.formal-view-right > h2 {
+  margin: 0;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fvr-count {
+  font-size: 11px;
+  font-weight: 400;
+  color: #8899a3;
+  background: #f0f4f6;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+/* Search */
+.fvr-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: white;
+}
+.fvr-search svg { color: #8899a3; flex-shrink: 0; }
+.fvr-search input {
+  border: none; outline: none; font-size: 12px; flex: 1; min-width: 0;
+  background: transparent; color: var(--ink-1);
+}
+.fvr-search input::placeholder { color: #b0bcc4; }
+.fvr-search-hint {
+  font-size: 9px; color: #b0bcc4; white-space: nowrap; flex-shrink: 0;
+}
+
+/* Table */
+.fvr-table-wrap {
+  border: 1px solid var(--line); border-radius: 5px; overflow: hidden;
+  display: flex; flex-direction: column; min-height: 0; max-height: calc(100vh - 340px);
+}
+.fvr-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fvr-table th {
+  position: sticky; top: 0; z-index: 2;
+  background: #f5f7f9; font-size: 10px; text-align: left;
+  padding: 8px 10px; border-bottom: 1px solid var(--line);
+  color: #667788; font-weight: 600; white-space: nowrap;
+}
+.fvr-th-name   { width: 160px; }
+.fvr-th-wide   { min-width: 180px; }
+.fvr-th-action { width: 52px; text-align: center !important; }
+.fvr-table td {
+  padding: 7px 10px; border-bottom: 1px solid #f0f2f4;
+  vertical-align: top; font-size: 11px; color: #334455;
+}
+.fvr-td-name strong {
+  cursor: pointer; color: #126d74; font-weight: 600; font-size: 12px;
+  display: inline-block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fvr-td-name strong:hover { text-decoration: underline; }
+.fvr-exp-icon {
+  cursor: pointer; display: inline-flex; vertical-align: middle; margin-right: 4px; color: #99aabb;
+}
+.fvr-td-wide { max-width: 240px; }
+.fvr-td-wide, .fvr-td-wide + td { font-size: 10px; color: #667788; line-height: 1.45; }
+.fvr-td-action { text-align: center; }
+.fvr-btn-detail {
+  border: 1px solid var(--line); background: white; border-radius: 3px;
+  padding: 2px 8px; font-size: 10px; cursor: pointer; color: #556677;
+}
+.fvr-btn-detail:hover { background: #f5f7f9; color: #126d74; border-color: #126d74; }
+.fvr-empty { text-align: center; color: #b0bcc4; padding: 30px 10px !important; }
+.fvr-table tbody tr.has-empty > td { background: #fffbf5; }
+.fvr-table tbody tr:hover > td { background: #fafcfd; }
+.fvr-table tbody tr.has-empty:hover > td { background: #fff8eb; }
+
+/* Detail card */
+.fvr-detail-card {
+  border-top: 1px solid var(--line); background: #fafcfD; padding: 14px 16px;
+}
+.fvr-detail-card header {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;
+}
+.fvr-detail-card header strong { font-size: 13px; color: #1a3040; }
+.fvr-detail-card header button {
+  border: none; background: none; font-size: 15px; cursor: pointer; color: #99aabb;
+  padding: 2px 6px; border-radius: 3px;
+}
+.fvr-detail-card header button:hover { background: #eef2f4; color: #556677; }
+.fvr-detail-card dl { display: grid; grid-template-columns: 90px 1fr; gap: 8px 14px; }
+.fvr-dl-row dt {
+  font-size: 10px; color: #8899a3; white-space: nowrap; padding-top: 2px;
+}
+.fvr-dl-row dd {
+  font-size: 11px; color: #334455; line-height: 1.6; margin: 0; word-break: break-word;
+}
+.fvr-dl-row.empty dd { color: #cc8800; font-style: italic; }
+
+/* Pagination */
+.fvr-pagination {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  padding: 8px 0; border-top: 1px solid var(--line); font-size: 11px; color: #667788;
+}
+.fvr-pagination button {
+  border: 1px solid var(--line); background: white; border-radius: 3px;
+  padding: 3px 10px; font-size: 11px; cursor: pointer;
+}
+.fvr-pagination button:hover:not(:disabled) { background: #f5f7f9; color: #126d74; }
+.fvr-pagination button:disabled { opacity: .35; cursor: not-allowed; }
+
+/* ═══════ Incomplete Bar — 待完善条目编辑 ═══════ */
+.incomplete-bar {
+  border: 1px solid #e8d4a0; border-radius: 5px; background: #fffaf0;
+  overflow: hidden;
+}
+.incomplete-bar-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; background: #fff5e0; border-bottom: 1px solid #ecdcb0;
+}
+.incomplete-bar-header strong { font-size: 12px; color: #8a6d20; }
+.incomplete-bar-header span { font-size: 9px; color: #b89a40; }
+.incomplete-bar.empty {
+  text-align: center; padding: 12px; color: #4f9d76; font-size: 12px;
+  border-color: #b8e0c8; background: #f0faf4;
+}
+.incomplete-item {
+  padding: 10px 12px; border-bottom: 1px solid #fce8c8;
+}
+.incomplete-item:last-child { border-bottom: none; }
+.incomplete-item-name {
+  font-weight: 600; font-size: 12px; color: #1a3040; margin-bottom: 6px;
+}
+.incomplete-item-fields { display: flex; flex-wrap: wrap; gap: 6px; }
+.incomplete-field {
+  display: inline-flex; flex-direction: column; gap: 2px;
+  border: 1px dashed #dcc898; border-radius: 3px; padding: 4px 8px; background: white;
+}
+.incomplete-field-label {
+  font-size: 8px; color: #b89a40; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.incomplete-field-value {
+  font-size: 11px; color: #cc8800; cursor: pointer; padding: 2px 5px;
+  border-radius: 2px; min-width: 70px; transition: all 0.15s;
+}
+.incomplete-field-value:hover { background: #fff5e0; color: #996000; }
+.incomplete-field-edit {
+  display: flex; align-items: center; gap: 4px;
+}
+.incomplete-field-edit input {
+  font-size: 11px; padding: 4px 7px; border: 1px solid #126d74;
+  border-radius: 3px; outline: none; min-width: 140px; background: white; color: #1a3040;
+}
+.incomplete-field-edit input:focus { box-shadow: 0 0 0 2px rgba(18,109,116,0.18); }
+.incomplete-field-save {
+  border: none; color: white; background: #126d74; border-radius: 3px;
+  padding: 4px 9px; font-size: 11px; cursor: pointer; white-space: nowrap;
+  transition: background 0.15s;
+}
+.incomplete-field-save:hover { background: #0e5a62; }
+.incomplete-field-save:active { background: #09454b; }
