@@ -407,12 +407,26 @@ IPC_HANDLERS['update:check'] = async () => {
   try {
     const result = await autoUpdater.checkForUpdates();
     if (result && result.updateInfo) {
-      return asResult({
-        available: true,
-        version: result.updateInfo.version,
-        releaseDate: result.updateInfo.releaseDate,
-        releaseNotes: result.updateInfo.releaseNotes,
-      });
+      const remoteVersion = result.updateInfo.version;
+      const currentVersion = version;
+      // Compare semantic versions — only show available if remote > current
+      const currentParts = currentVersion.split('.').map(Number);
+      const remoteParts = remoteVersion.split('.').map(Number);
+      let isNewer = false;
+      for (let i = 0; i < Math.max(currentParts.length, remoteParts.length); i++) {
+        const c = currentParts[i] || 0;
+        const r = remoteParts[i] || 0;
+        if (r > c) { isNewer = true; break; }
+        if (r < c) break;
+      }
+      if (isNewer) {
+        return asResult({
+          available: true,
+          version: remoteVersion,
+          releaseDate: result.updateInfo.releaseDate,
+          releaseNotes: result.updateInfo.releaseNotes,
+        });
+      }
     }
     return asResult({ available: false });
   } catch {
