@@ -323,29 +323,49 @@ function SemanticProposalEditor({ item, onChange, notify, selected, onToggle }: 
   return <article className="semantic-review-card" style={{ opacity: selected ? 1 : 0.7 }}><header><label className="semantic-checkbox"><input type="checkbox" checked={selected} onChange={() => onToggle(item.id)} /><span className="checkmark" /></label><span>{item.typeLabel || ({ metric: "指标口径", entity: "实体定义", source: "数据源" } as Record<string, string>)[item.type] || item.type}</span><strong>{item.title}</strong></header><label>语义名称<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label><label>建议定义<textarea value={draft.proposed} onChange={(event) => setDraft({ ...draft, proposed: event.target.value })} /></label><label>证据与来源<textarea value={draft.evidence} onChange={(event) => setDraft({ ...draft, evidence: event.target.value })} /></label><label>适用范围与影响<textarea value={draft.impact} onChange={(event) => setDraft({ ...draft, impact: event.target.value })} /></label><div className="semantic-review-actions"><AppButton onClick={save}>保存修改</AppButton><label>确认人<input value={confirmedBy} onChange={(event) => setConfirmedBy(event.target.value)} /></label><AppButton tone="primary" onClick={approve}>人工确认并发布</AppButton></div><div className="semantic-reject"><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="填写退回原因" /><AppButton tone="danger" disabled={!reason.trim()} onClick={reject}>退回候选</AppButton></div></article>;
 }
 
+function IncompleteBar({ content, docName, onRefresh, notify }: { content: string; docName: string; onRefresh: () => Promise<void>; notify: (m: string) => void }) {
+  const lines = content.split('\n');
+  const headerLine = lines.slice(2,3)[0];
+  if (!headerLine) return null;
+  const colNames = headerLine.split('|').filter((c: string) => c.trim()).map((c: string) => c.trim());
+  const dataLines = lines.slice(4).filter((l: string) => l.trim().startsWith('|'));
+  const items = dataLines.map((l: string, idx: number) => {
+    const cells = l.split('|').filter((c: string) => c.trim());
+    const row: Record<string,string> = {};
+    colNames.forEach((c, i) => { if (cells[i+1]) row[c] = cells[i+1].trim(); });
+    return { lineIdx: idx + 4, row };
+  }).filter((o: any) => Object.keys(o.row).length > 0);
+  const incomplete = items.filter((item: any) => colNames.some((c: string) => { const v = item.row[c] || ''; return !v.trim() || /待确认|待补充|未知|todo/i.test(v); }));
+  if (incomplete.length === 0) return <div className="incomplete-bar empty">所有字段已完善 <span>✓</span></div>;
+  const [editing, setEditing] = useState<{lineIdx:number;field:string}|null>(null);
+  const [val, setVal] = useState('');
+  const doSave = async (lineIdx: number, field: string, value: string) => {
+    const newLines = [...lines];
+    const cells = newLines[lineIdx].split('|');
+    const colIdx = colNames.indexOf(field) + 1;
+    if (colIdx <= 0) return;
+    cells[colIdx] = ' ' + value + ' ';
+    newLines[lineIdx] = cells.join('|');
+    await api.saveFile(`/02-权威语义层/${docName}.md`, newLines.join('\n'));
+    await onRefresh();
+    setEditing(null);
+    notify(`${field}已更新`);
+  };
+  return <div className="incomplete-bar"><div className="incomplete-bar-header"><strong>待完善条目（{incomplete.length}条）</strong><span>点击空字段直接编辑，回车保存</span></div>{incomplete.map((item: any) => <div className="incomplete-item" key={item.lineIdx}><div className="incomplete-item-name">{item.row[colNames[0]] || item.row['指标'] || item.row['标准名称'] || '未命名'}</div><div className="incomplete-item-fields">{colNames.filter((c: string) => {const v = item.row[c] || ''; return !v.trim() || /待确认|待补充|未知|todo/i.test(v);}).map((field: string) => <div className="incomplete-field" key={field}><span className="incomplete-field-label">{field}</span>{editing?.lineIdx === item.lineIdx && editing?.field === field ? <div className="incomplete-field-edit"><input autoFocus value={val} onChange={(e: any) => setVal(e.target.value)} onKeyDown={(e: any) => {if (e.key === 'Escape') setEditing(null); if (e.key === 'Enter') {doSave(item.lineIdx, field, val);}}}/><button className="incomplete-field-save" onClick={() => {doSave(item.lineIdx, field, val);}}>✓</button></div> : <span className="incomplete-field-value" onClick={() => {setEditing({lineIdx:item.lineIdx, field});setVal(item.row[field] || '');}}>{item.row[field] ? item.row[field].slice(0,40)+'…' : '点击填写'}</span>}</div>)}</div></div>)}</div>;
+}
+
 function FormalView({ snapshot, selectedId, setSelectedId, onRefresh, notify }: { snapshot: any; selectedId: string; setSelectedId: (id: string) => void; onRefresh: () => Promise<void>; notify: (m: string) => void }) {
-  const [editTarget, setEditTarget] = useState<{row:number;field:string} | null>(null);
-  const [editValue, setEditValue] = useState('');
   const selectedDoc = snapshot.semantic.docs.find((d: any) => d.id === selectedId);
-
-  if (!selectedDoc) return <section className="semantic-layout"><div><h2>正式语义文件</h2>{snapshot.semantic.docs.map((doc: any) => <button className={`semantic-doc-row ${doc.id === selectedId ? "selected" : ""}`} key={doc.id} onClick={() => setSelectedId(doc.id)}><BookOpenText size={20} /><span><strong>{doc.title}</strong><small>{doc.count}条正式定义 · {doc.incomplete}个字段待完善</small></span><CaretRight size={15} /></button>)}</div><div className="semantic-preview-empty">选择左侧文件查看语义条目</div></section>;
-
+  if (!selectedDoc) return <section className="semantic-layout"><div><h2>正式语义文件</h2>{snapshot.semantic.docs.map((doc: any) => <button className={`semantic-doc-row ${doc.id === selectedId ? "selected" : ""}`} key={doc.id} onClick={() => setSelectedId(doc.id)}><BookOpenText size={20} /><span><strong>{doc.title}</strong><small>{doc.count}条正式定义</small></span><CaretRight size={15} /></button>)}</div><div className="semantic-preview-empty">选择左侧文件查看语义条目</div></section>;
   const content = selectedDoc.content || '';
   const lines = content.split('\n');
   const headerLine = lines.slice(2,3)[0];
   if (!headerLine) return <pre>{content}</pre>;
   const colNames = headerLine.split('|').filter((c: string) => c.trim()).map((c: string) => c.trim());
+  const firstCol = colNames[0];
   const dataLines = lines.slice(4).filter((l: string) => l.trim().startsWith('|'));
-  const items = dataLines.map((l: string) => {
-    const cells = l.split('|').filter((c: string) => c.trim());
-    const obj: Record<string,string> = {};
-    colNames.forEach((c, i) => { if (cells[i+1]) obj[c] = cells[i+1].trim(); });
-    return obj;
-  }).filter((o: Record<string,string>) => Object.keys(o).length > 0);
-
-  const hasIncomplete = items.some((item: Record<string,string>) => colNames.some((c: string) => !item[c]?.trim() || /待确认|待补充|未知|todo/i.test(item[c]||'')));
-
-  return <section className="semantic-layout"><div><h2>正式语义文件</h2>{snapshot.semantic.docs.map((doc: any) => <button className={`semantic-doc-row ${doc.id === selectedId ? "selected" : ""}`} key={doc.id} onClick={() => { setSelectedId(doc.id); setEditTarget(null); }}><BookOpenText size={20} /><span><strong>{doc.title}</strong><small>{doc.count}条正式定义 · {doc.incomplete}个字段待完善</small></span><CaretRight size={15} /></button>)}</div><div><h2>{selectedDoc.title} <span style={{fontSize:11,color:'#8899a3',fontWeight:'normal'}}>点击空字段即可编辑</span></h2><div className="semantic-card-list">{items.map((item: Record<string,string>, idx: number) => {const hasEmpty = colNames.some((c: string) => !item[c]?.trim() || /待确认|待补充|未知|todo/i.test(item[c]||''));return <div className={`semantic-card-item ${hasEmpty ? 'has-empty' : ''}`} key={idx}><div className="sci-header"><strong>{item['指标'] || item['标准名称'] || item['数据源'] || `条目${idx+1}`}</strong>{hasEmpty ? <span className="sci-type empty-badge">有缺字段</span> : null}<span className={`sci-type ${item['计算方式'] ? 'has-calculation' : ''}`}>{item['计算方式'] ? '有公式' : '无公式'}</span></div><div className="sci-fields">{Object.entries(item).filter(([k]) => k !== '指标' && k !== '标准名称' && k !== '数据源').map(([k, v]) => <div className="sci-field" key={k}><span className="sci-label">{k}</span>{editTarget?.row === idx && editTarget?.field === k ? <div style={{display:'flex',gap:4}}><input className="sci-edit-input" value={editValue} onChange={(e: any) => setEditValue(e.target.value)} autoFocus onKeyDown={(e: any) => {if (e.key === 'Escape') setEditTarget(null);if (e.key === 'Enter') doSave();}}/> <button className="sci-edit-btn" onClick={doSave}>✓</button></div> : <span className="sci-value" style={{cursor:'pointer',...(v ? {} : {color:'#ccc',fontStyle:'italic'})}} onClick={() => {setEditTarget({row:idx,field:k});setEditValue(v || '');}}>{v || '点击编辑'}</span>}</div>)}</div></div>;function doSave(){const lineIdx=4+idx;const cells=[...lines];const rowCells=cells[lineIdx].split('|');const colIdx=colNames.indexOf(editTarget?.field||'')+1;if(colIdx>0){rowCells[colIdx]=' '+editValue+' ';cells[lineIdx]=rowCells.join('|');api.saveFile(`/02-权威语义层/${selectedDoc.title}.md`,cells.join('\n')).then(()=>{onRefresh().then(()=>notify(`${editTarget?.field}已更新`));setEditTarget(null);});}}})}</div><footer><span>共 {items.length} 条正式定义</span>{hasIncomplete ? <button style={{border:0,color:'#126d74',background:'transparent',fontSize:'11px',cursor:'pointer'}} onClick={() => {const missing = items.filter((item: Record<string,string>) => colNames.some((c: string) => !item[c]?.trim())).map((item: Record<string,string>) => `- ${item['指标'] || item['标准名称'] || '未命名'}：缺 ${colNames.filter((c: string) => !item[c]?.trim()).join('、')}`).join('\n');navigator.clipboard.writeText(missing);notify('缺失清单已复制');}}>复制缺失清单</button> : null}</footer></div></section>;
+  const items = dataLines.map((l: string) => { const cells = l.split('|').filter((c: string) => c.trim()); const obj: Record<string,string> = {}; colNames.forEach((c, i) => { if (cells[i+1]) obj[c] = cells[i+1].trim(); }); return obj; }).filter((o: Record<string,string>) => Object.keys(o).length > 0);
+  return <section className="semantic-layout"><div><h2>正式语义文件</h2>{snapshot.semantic.docs.map((doc: any) => <button className={`semantic-doc-row ${doc.id === selectedId ? "selected" : ""}`} key={doc.id} onClick={() => setSelectedId(doc.id)}><BookOpenText size={20} /><span><strong>{doc.title}</strong><small>{doc.count}条正式定义</small></span><CaretRight size={15} /></button>)}</div><div className="formal-view-right"><h2>{selectedDoc.title}</h2><IncompleteBar content={content} docName={selectedDoc.title.replace(/\.md$/,'')} onRefresh={onRefresh} notify={notify} /><div className="semantic-card-list">{items.map((item: Record<string,string>, idx: number) => <div className="semantic-card-item" key={idx}><div className="sci-header"><strong>{item[firstCol] || `条目${idx+1}`}</strong></div><div className="sci-fields">{Object.entries(item).filter(([k]) => k !== firstCol).map(([k, v]) => <div className="sci-field" key={k}><span className="sci-label">{k}</span><span className="sci-value">{v || ''}</span></div>)}</div></div>)}</div></div></section>;
 }
 
 function SemanticCenter({ snapshot, onBack, onRefresh, onSemanticChange, notify }: { snapshot: AppSnapshot; onBack: () => void; onRefresh: () => Promise<void>; onSemanticChange: (semantic: SemanticSnapshot) => void; notify: (m: string) => void }) {

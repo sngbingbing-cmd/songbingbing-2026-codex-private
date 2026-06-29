@@ -1,6 +1,6 @@
 {
   "name": "ai-native-data-workbench-desktop",
-  "version": "1.1.9",
+  "version": "1.1.10",
   "private": false,
   "description": "Local-first AI-native data analysis workbench for macOS and Windows",
   "author": "宋冰冰 & Codex",
