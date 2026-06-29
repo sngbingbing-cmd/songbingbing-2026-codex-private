@@ -319,6 +319,15 @@ IPC_HANDLERS['prompt:generate'] = async (_event, taskId, kind, draft) => {
   }
 };
 
+IPC_HANDLERS['report:generate-word'] = async (_event, taskId) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try {
+    return asResult(await workspaceService.generateWordReport(taskId));
+  } catch (e) {
+    return asError(e);
+  }
+};
+
 // External sources
 IPC_HANDLERS['source:link'] = async (_event, taskId, sourcePath, label) => {
   if (!workspaceService) return asError(new Error('Workspace not initialized'));

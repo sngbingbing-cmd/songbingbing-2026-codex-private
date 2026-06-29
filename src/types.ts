@@ -90,13 +90,14 @@ export interface WorkbenchApi {
   createTask(name: string): Promise<TaskDetail>;
   getTask(id: string): Promise<TaskDetail>;
   archiveTask(id: string, archived: boolean): Promise<void>;
-  pickFiles(id: string, zone: "inbox" | "raw" | "validation"): Promise<TaskDetail>;
+  pickFiles(id: string, zone: "inbox" | "raw" | "validation" | "notes/four-piece-support"): Promise<TaskDetail>;
   syncFiles(id: string): Promise<TaskDetail>;
   readFile(path: string): Promise<string>;
   saveFile(path: string, content: string): Promise<void>;
   revealPath(path: string): Promise<void>;
   generatePrompt(id: string, kind: PromptKind, draft?: PromptDraft): Promise<string>;
   generateSemanticPrompt(): Promise<string>;
+  generateWordReport(id: string): Promise<{ outputPath: string; outputName: string; sourcePath: string; task: TaskDetail }>;
   dispatchPrompt(id: string, kind: "analysis" | "reanalysis", draft?: PromptDraft): Promise<string>;
   getExternalSources(id: string): Promise<ExternalSourceInfo[]>;
   linkExternalSource(id: string, sourcePath: string, label?: string): Promise<ExternalSourceInfo>;

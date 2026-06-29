@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { exportMarkdownToWord } = require('./word-export.cjs');
 
 const LEGACY_DIRS = [
   '00-使用说明',
@@ -914,6 +915,22 @@ class WorkspaceService {
       '最终回复必须列出实际写入的绝对路径。',
     ].join('\n');
     return { prompt, candidatePath, createdAt: new Date().toISOString() };
+  }
+
+  async generateWordReport(taskId) {
+    const task = this.getTask(taskId);
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    const outputsPath = this.resolvePath(TASKS_DIR, taskId, 'outputs');
+    const candidates = fs.readdirSync(outputsPath, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
+      .map((entry) => ({ name: entry.name, path: path.join(outputsPath, entry.name), modifiedAt: fs.statSync(path.join(outputsPath, entry.name)).mtimeMs }))
+      .sort((a, b) => b.modifiedAt - a.modifiedAt);
+    if (!candidates.length) throw new Error('outputs 中没有可转换的 Markdown 报告，请先完成分析并生成 .md 报告');
+    const source = candidates[0];
+    const outputName = `${path.basename(source.name, path.extname(source.name))}.docx`;
+    const outputPath = path.join(outputsPath, outputName);
+    await exportMarkdownToWord(source.path, outputPath, task.title || taskId);
+    return { outputPath, outputName, sourcePath: source.path };
   }
 
   /**

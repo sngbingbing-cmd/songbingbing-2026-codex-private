@@ -26,11 +26,15 @@ const mockApi: WorkbenchApi = {
   async generatePrompt(_id, kind, draft) {
     await wait();
     const taskRoot = `${snapshot.workspacePath}/04-分析任务/${_id}`;
-    return `# AI原生数据分析工作台｜${kind === "analysis" ? "首次分析" : kind === "reanalysis" ? "重分析" : kind === "evaluation" ? "AI评测" : "输出"}调度单\n\n## 0. 路径锚点（最高优先级）\n- 当前工作区唯一根目录: ${snapshot.workspacePath}\n- 当前任务唯一根目录: ${taskRoot}\n- 本次执行类型: ${kind}\n\n${draft ? `## 用户分析指令\n${draft.goal}\n${draft.thinking}\n${draft.verification}\n\n` : ""}不得使用当前终端目录或其他同名任务替代上述绝对路径。\n正式输出只能写入: ${taskRoot}/outputs\n执行回执写入: ${taskRoot}/receipt.json`;
+    return `# AI原生数据分析工作台｜${kind === "analysis" ? "首次分析" : kind === "reanalysis" ? "重分析" : kind === "four-piece" ? "四件套补齐" : kind === "evaluation" ? "AI评测" : "输出"}调度单\n\n## 0. 路径锚点（最高优先级）\n- 当前工作区唯一根目录: ${snapshot.workspacePath}\n- 当前任务唯一根目录: ${taskRoot}\n- 本次执行类型: ${kind}\n\n${draft ? `## 用户分析指令\n${draft.goal}\n${draft.thinking}\n${draft.verification}\n\n` : ""}不得使用当前终端目录或其他同名任务替代上述绝对路径。\n正式输出只能写入: ${taskRoot}/outputs\n执行回执写入: ${taskRoot}/receipt.json`;
   },
   async generateSemanticPrompt() {
     await wait();
     return `# 权威语义维护调度单\n\n正式语义只读。仅将AI候选写入：${snapshot.workspacePath}/02-权威语义层/待确认建议`;
+  },
+  async generateWordReport(_id) {
+    await wait(500);
+    return { outputPath: `${snapshot.workspacePath}/04-分析任务/${_id}/outputs/示例经营分析.docx`, outputName: "示例经营分析.docx", sourcePath: `${snapshot.workspacePath}/04-分析任务/${_id}/outputs/示例经营分析.md`, task: structuredClone(mockDetail) };
   },
   async dispatchPrompt(_id, kind, draft) { await wait(); return mockApi.generatePrompt(_id, kind, draft); },
   async writeFeedback(_id, _category, _content) { await wait(); return structuredClone(mockDetail); },

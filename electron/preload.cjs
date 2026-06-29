@@ -220,6 +220,10 @@ const workbench = {
     const result = await invoke('semantic:generate-prompt');
     return result.prompt;
   },
+  async generateWordReport(id) {
+    const result = await invoke('report:generate-word', id);
+    return { ...result, task: await getTaskDetail(id) };
+  },
   async dispatchPrompt(id, kind, draft) {
     const result = await invoke('prompt:generate', id, kind, draft);
     await invoke('dispatch:write', id, { kind, title: `${kind} dispatch`, prompt: result.prompt, status: 'waiting_receipt' });
