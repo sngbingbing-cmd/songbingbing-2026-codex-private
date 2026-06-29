@@ -23,10 +23,12 @@ const mockApi: WorkbenchApi = {
   async readFile(path) { await wait(); return mockDetail.requiredDocs.find((doc) => doc.path === path)?.content || "# 文件预览\n\n当前为浏览器演示数据。"; },
   async saveFile(_path, _content) { await wait(); },
   async revealPath(_path) { await wait(); },
-  async generatePrompt(_id, kind) {
+  async generatePrompt(_id, kind, draft) {
     await wait();
-    return `# AI原生数据分析工作台｜${kind === "analysis" ? "首次分析" : kind === "reanalysis" ? "重分析" : kind === "evaluation" ? "AI评测" : "输出"}调度单\n\n请读取任务目录、权威语义层和领域Skill，基于现有资料执行。资料缺口只改变结论边界，不阻塞当前版本报告。`;
+    const taskRoot = `${snapshot.workspacePath}/04-分析任务/${_id}`;
+    return `# AI原生数据分析工作台｜${kind === "analysis" ? "首次分析" : kind === "reanalysis" ? "重分析" : kind === "evaluation" ? "AI评测" : "输出"}调度单\n\n## 0. 路径锚点（最高优先级）\n- 当前工作区唯一根目录: ${snapshot.workspacePath}\n- 当前任务唯一根目录: ${taskRoot}\n- 本次执行类型: ${kind}\n\n${draft ? `## 用户分析指令\n${draft.goal}\n${draft.thinking}\n${draft.verification}\n\n` : ""}不得使用当前终端目录或其他同名任务替代上述绝对路径。\n正式输出只能写入: ${taskRoot}/outputs\n执行回执写入: ${taskRoot}/receipt.json`;
   },
+  async dispatchPrompt(_id, kind, draft) { await wait(); return mockApi.generatePrompt(_id, kind, draft); },
   async writeFeedback(_id, _category, _content) { await wait(); return structuredClone(mockDetail); },
   async runEvaluation(_id) { await wait(400); return structuredClone({ ...mockDetail, evaluation: { ...mockDetail.evaluation, status: "通过", score: 86, checkedAt: new Date().toLocaleString("zh-CN") } }); },
   async checkForUpdates() { await wait(500); return { status: "current" }; },

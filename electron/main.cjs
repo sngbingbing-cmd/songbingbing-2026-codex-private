@@ -301,10 +301,10 @@ IPC_HANDLERS['receipt:write'] = async (_event, taskId, receiptData) => {
 };
 
 // Prompt
-IPC_HANDLERS['prompt:generate'] = async (_event, taskId, kind) => {
+IPC_HANDLERS['prompt:generate'] = async (_event, taskId, kind, draft) => {
   if (!workspaceService) return asError(new Error('Workspace not initialized'));
   try {
-    return asResult(workspaceService.generatePrompt(taskId, kind));
+    return asResult(workspaceService.generatePrompt(taskId, kind, draft));
   } catch (e) {
     return asError(e);
   }

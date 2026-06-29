@@ -48,7 +48,7 @@ export const mockDetail: TaskDetail = {
 };
 
 export const mockSnapshot: AppSnapshot = {
-  version: "1.1.0",
+  version: "1.1.1",
   workspacePath: "/Users/demo/Documents/AI原生数据分析工作台",
   workspaceName: "示例工作区",
   tasks: taskRows,

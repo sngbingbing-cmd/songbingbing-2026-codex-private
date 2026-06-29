@@ -167,6 +167,7 @@ class WorkspaceService {
       context: status.context || '',
       hasDispatch: !!dispatch,
       hasReceipt: !!receipt,
+      dispatchKind: dispatch?.kind || null,
       dispatchSummary: dispatch
         ? dispatch.title || (dispatch.prompt ? dispatch.prompt.substring(0, 120) : null)
         : null,
@@ -297,7 +298,7 @@ class WorkspaceService {
     );
 
     const status = this._readJson(TASKS_DIR, taskId, 'status.json');
-    if (status && status.status === 'pending') {
+    if (status && status.status !== 'archived') {
       status.status = 'running';
       status.updatedAt = new Date().toISOString();
       this._writeJson(status, TASKS_DIR, taskId, 'status.json');
@@ -697,40 +698,176 @@ class WorkspaceService {
    * @param {string} taskId
    * @returns {object}
    */
-  generatePrompt(taskId, kind = 'analysis') {
+  generatePrompt(taskId, kind = 'analysis', draft = {}) {
     const task = this.getTask(taskId);
     if (!task) throw new Error(`Task not found: ${taskId}`);
 
+    const supportedKinds = new Set(['analysis', 'reanalysis', 'evaluation', 'html', 'skill']);
+    if (!supportedKinds.has(kind)) throw new Error(`Unsupported prompt kind: ${kind}`);
+
+    const taskRoot = this.resolvePath(TASKS_DIR, taskId);
+    const rawPath = path.join(taskRoot, 'raw');
+    const workingPath = path.join(taskRoot, 'working');
+    const notesPath = path.join(taskRoot, 'notes');
+    const outputsPath = path.join(taskRoot, 'outputs');
+    const validationPath = path.join(taskRoot, 'validation');
+    const receiptPath = path.join(taskRoot, 'receipt.json');
+    const safeTitle = (task.title || task.id).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
+    const kindConfig = {
+      analysis: { label: '首次分析', output: path.join(outputsPath, `${safeTitle}_首次分析.md`) },
+      reanalysis: { label: '重分析', output: path.join(outputsPath, `${safeTitle}_重分析.md`) },
+      evaluation: { label: 'AI评测', output: path.join(validationPath, 'AI评测.md') },
+      html: { label: 'HTML报告', output: path.join(outputsPath, `${safeTitle}.html`) },
+      skill: { label: 'Skill候选沉淀', output: path.join(notesPath, `${safeTitle}_Skill候选.md`) },
+    }[kind];
+
+    const fourPiecePaths = ['分析请求.md', '来源清单.md', '口径映射.md', '验证清单.md']
+      .map((name) => path.join(taskRoot, name));
+    const semanticPaths = ['指标口径表.md', '实体字典.md', '数据源登记表.md']
+      .map((name) => path.join(this.workspacePath, '02-权威语义层', name));
+    const receiptExample = JSON.stringify({
+      kind,
+      status: 'completed',
+      summary: '用一段话说明本次执行完成了什么以及主要结论',
+      outputFiles: [kindConfig.output],
+      dataSources: ['填写实际读取的绝对路径或来源文件'],
+      confidence: 'high|medium|low',
+      unresolved: ['仍需人工确认的问题；没有则为空数组'],
+      completedAt: 'ISO-8601时间',
+    }, null, 2);
+    const writableLines = kind === 'evaluation'
+      ? [`- 临时检查文件: ${workingPath}`, `- 评测结果: ${validationPath}`]
+      : kind === 'html'
+        ? [`- 临时转换文件: ${workingPath}`, `- HTML正式输出: ${outputsPath}`, `- 转换待确认项: ${validationPath}`, `- 最新执行回执: ${receiptPath}`]
+        : kind === 'skill'
+          ? [`- 临时提炼文件: ${workingPath}`, `- Skill候选与证据: ${notesPath}`, `- 待确认项: ${validationPath}`, `- 最新执行回执: ${receiptPath}`]
+          : [
+              `- 中间文件: ${workingPath}`,
+              `- 证据与过程记录: ${notesPath}`,
+              `- 正式输出: ${outputsPath}`,
+              `- 验证结果: ${validationPath}`,
+              `- 四件套: ${fourPiecePaths.join('；')}`,
+              `- 最新执行回执: ${receiptPath}`,
+            ];
+
+    const executionSteps = this._buildPromptExecutionSteps({
+      kind,
+      taskRoot,
+      outputsPath,
+      validationPath,
+      kindConfig,
+      fourPiecePaths,
+      receiptPath,
+      receiptExample,
+    });
+    const userInstructions = [
+      draft?.goal ? `### 分析目标与范围\n${String(draft.goal).trim()}` : '',
+      draft?.thinking ? `### 分析思路与创造力引导\n${String(draft.thinking).trim()}` : '',
+      draft?.verification ? `### 校验与验证要求\n${String(draft.verification).trim()}` : '',
+    ].filter(Boolean);
+
     const prompt = [
-      `# AI原生数据分析工作台｜${kind === 'reanalysis' ? '重分析' : kind === 'evaluation' ? 'AI评测' : '首次分析'}调度单`,
+      `# AI原生数据分析工作台｜${kindConfig.label}调度单`,
       ``,
-      `## 任务基本信息`,
+      `## 0. 路径锚点（最高优先级）`,
+      `- 当前工作区唯一根目录: ${this.workspacePath}`,
+      `- 当前任务唯一根目录: ${taskRoot}`,
+      `- 任务ID: ${task.id}`,
+      `- 任务标题: ${task.title}`,
+      `- 本次执行类型: ${kind}`,
+      ``,
+      `无论当前终端位于哪里、已有Skill默认指向哪里，均以上述绝对路径为准。`,
+      `不得按任务名在磁盘中搜索其他同名目录，不得读取或写入其他工作台中的同名任务。`,
+      `如果上述任务根目录不存在，立即停止并报告“任务路径不存在”，不得自行创建替代目录。`,
+      ``,
+      `## 1. 路径与权限边界`,
+      `### 可读取`,
+      `- 任务原始资料: ${rawPath}`,
+      `- 任务四件套:`,
+      ...fourPiecePaths.map((item) => `  - ${item}`),
+      `- 权威语义层:`,
+      ...semanticPaths.map((item) => `  - ${item}`),
+      `- 领域Skills目录: ${path.join(this.workspacePath, '03-领域分析Skills')}`,
+      `- 既有输出（重分析、评测、HTML或Skill沉淀时读取）: ${outputsPath}`,
+      `- 人工反馈与验证资料: ${validationPath}`,
+      ``,
+      `### 可写入`,
+      ...writableLines,
+      ``,
+      `禁止修改外部资料目录、工作区正式权威语义层及当前任务之外的任何文件。语义改进只能写成候选建议，等待人工确认。`,
+      ...this._buildExternalSourcesPrompt(taskId),
+      ``,
+      `## 2. 任务基本信息`,
       `- 任务ID: ${task.id}`,
       `- 标题: ${task.title}`,
       `- 类型: ${task.taskType}`,
+      `- 描述: ${task.description || '（无描述）'}`,
+      `- 上下文: ${task.context || '（无补充上下文）'}`,
       ``,
-      `## 任务描述`,
-      task.description || '（无描述）',
-      ``,
-      task.context ? `## 上下文\n${task.context}\n` : '',
-      `## 输出要求`,
-      `请将分析结果写入以下结构：`,
-      `- conclusion: 核心结论`,
-      `- summary: 简要总结`,
-      `- details: 详细分析`,
-      `- dataSources: 数据来源列表`,
-      `- confidence: 置信度评估`,
-      ``,
-      `## 执行原则`,
+      ...(userInstructions.length ? ['## 3. 用户在工作台填写的分析指令', ...userInstructions, ''] : []),
+      `## ${userInstructions.length ? '4' : '3'}. 执行原则`,
       `- 基于当前已有资料始终产出可用版本，资料缺口只改变结论边界，不阻塞报告`,
       `- 优先读取权威语义层，同时主动发现异常、反例、冲突与新的解释`,
       `- 区分事实、推断和建议；每个关键结论标注来源、截止时间与可信度`,
       `- 对高风险判断进行交叉校验，不确定内容进入验证清单`,
-      `- 生成或刷新四件套，并写回结构化执行回执`,
-      ...this._buildExternalSourcesPrompt(taskId),
+      `- 不因四件套尚未补齐而拒绝分析；先基于现有资料形成报告，再记录缺口`,
+      ``,
+      `## ${userInstructions.length ? '5' : '4'}. 本次执行步骤与交付`,
+      ...executionSteps,
+      ``,
+      `## ${userInstructions.length ? '6' : '5'}. 完成判定`,
+      `只有当要求的输出文件和状态文件实际写入上述绝对路径后，才算完成。`,
+      `最终回复必须逐项列出实际写入的绝对路径；不得只在聊天中给出分析结果。`,
     ].join('\n');
 
     return { id: taskId, prompt, createdAt: new Date().toISOString() };
+  }
+
+  _buildPromptExecutionSteps({ kind, taskRoot, outputsPath, validationPath, kindConfig, fourPiecePaths, receiptPath, receiptExample }) {
+    if (kind === 'evaluation') {
+      const evaluationJsonPath = path.join(validationPath, 'evaluation.json');
+      return [
+        `1. 读取 ${outputsPath} 中的正式输出，并回查原始资料、来源清单、口径映射和验证清单。`,
+        `2. 抽查事实、数字、口径、推理、反证、来源追溯和行动可执行性。`,
+        `3. 将完整评测报告写入: ${kindConfig.output}`,
+        `4. 将机器可读结果写入: ${evaluationJsonPath}`,
+        `5. evaluation.json 至少包含 status、score、checkedAt、checks；score 为 0-100 数字，checks 为数组。`,
+        `6. AI评测不得修改原报告，只能提出问题和改进建议。`,
+      ];
+    }
+
+    if (kind === 'html') {
+      return [
+        `1. 读取 ${outputsPath} 中最新且内容完整的Markdown报告。`,
+        `2. 生成可离线打开、无外部依赖的单文件HTML，写入: ${kindConfig.output}`,
+        `3. 不改变原报告结论；发现冲突时写入 ${path.join(validationPath, 'HTML转换待确认.md')}。`,
+        `4. 将以下JSON写入 ${receiptPath}，按实际结果替换占位内容：`,
+        '```json', receiptExample, '```',
+      ];
+    }
+
+    if (kind === 'skill') {
+      return [
+        `1. 读取任务资料、四件套、验证记录和正式输出，提炼可复用但不含业务敏感数据的方法。`,
+        `2. 将候选Skill写入: ${kindConfig.output}`,
+        `3. 不得直接修改 ${path.join(this.workspacePath, '03-领域分析Skills')} 或任何全局Skill；候选内容必须等待人工确认。`,
+        `4. 将以下JSON写入 ${receiptPath}，按实际结果替换占位内容：`,
+        '```json', receiptExample, '```',
+      ];
+    }
+
+    const isReanalysis = kind === 'reanalysis';
+    return [
+      `1. ${isReanalysis ? `先读取 ${outputsPath} 中既有报告以及 ${validationPath} 中新增反馈，再重新分析。` : '读取任务raw、外部只读来源、四件套、权威语义和相关领域Skill。'}`,
+      `2. 将正式报告写入: ${kindConfig.output}`,
+      `3. 报告至少包含：执行摘要、事实与来源、关键判断、反证与不确定性、风险、行动建议、待验证项。`,
+      `4. 根据实际分析刷新四件套：`,
+      ...fourPiecePaths.map((item) => `   - ${item}`),
+      `5. 将证据索引或计算说明写入 ${path.join(taskRoot, 'notes')}；临时文件写入 ${path.join(taskRoot, 'working')}。`,
+      `6. 将以下JSON写入 ${receiptPath}，按实际结果替换占位内容：`,
+      '```json', receiptExample, '```',
+      `7. 不要把正式输出复制到工作区根目录的 06-输出物；当前任务的 outputs 是唯一正式输出位置。`,
+    ];
   }
 
   /**

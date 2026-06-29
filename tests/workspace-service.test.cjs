@@ -442,6 +442,7 @@ describe('Dispatch and Receipt', () => {
 
   it('writeDispatch writes dispatch.json and sets status to running', () => {
     const result = ws.writeDispatch(taskId, {
+      kind: 'analysis',
       prompt: '分析这份数据',
       model: 'claude-opus-4',
     });
@@ -452,6 +453,7 @@ describe('Dispatch and Receipt', () => {
     assert.ok(fs.existsSync(dispatchPath));
     const dispatch = JSON.parse(fs.readFileSync(dispatchPath, 'utf-8'));
     assert.equal(dispatch.prompt, '分析这份数据');
+    assert.equal(dispatch.kind, 'analysis');
     assert.equal(dispatch.model, 'claude-opus-4');
     assert.ok(dispatch.createdAt);
 
@@ -512,6 +514,7 @@ describe('Dispatch and Receipt', () => {
     const task = ws.getTask(taskId);
     assert.ok(task.hasDispatch);
     assert.ok(task.hasReceipt);
+    assert.equal(task.dispatchKind, 'analysis');
   });
 });
 
@@ -584,11 +587,59 @@ describe('Prompt generation', () => {
     assert.ok(result.prompt.includes('Prompt测试'));
     assert.ok(result.prompt.includes('用于测试prompt生成'));
     assert.ok(result.prompt.includes('用户说需要分析销售数据'));
+    const taskRoot = path.join(tmp, '04-分析任务', taskId);
+    assert.ok(result.prompt.includes(`当前工作区唯一根目录: ${tmp}`));
+    assert.ok(result.prompt.includes(`当前任务唯一根目录: ${taskRoot}`));
+    assert.ok(result.prompt.includes(path.join(taskRoot, 'outputs', 'Prompt测试_首次分析.md')));
+    assert.ok(result.prompt.includes(path.join(taskRoot, 'receipt.json')));
+    assert.ok(result.prompt.includes('不得按任务名在磁盘中搜索其他同名目录'));
+    assert.ok(result.prompt.includes('不得只在聊天中给出分析结果'));
     assert.ok(result.createdAt);
+  });
+
+  it('generates distinct path-complete contracts for every prompt kind', () => {
+    const taskRoot = path.join(tmp, '04-分析任务', taskId);
+    const expectations = {
+      analysis: path.join(taskRoot, 'outputs', 'Prompt测试_首次分析.md'),
+      reanalysis: path.join(taskRoot, 'outputs', 'Prompt测试_重分析.md'),
+      evaluation: path.join(taskRoot, 'validation', 'evaluation.json'),
+      html: path.join(taskRoot, 'outputs', 'Prompt测试.html'),
+      skill: path.join(taskRoot, 'notes', 'Prompt测试_Skill候选.md'),
+    };
+
+    for (const [kind, expectedPath] of Object.entries(expectations)) {
+      const prompt = ws.generatePrompt(taskId, kind).prompt;
+      assert.ok(prompt.includes(`本次执行类型: ${kind}`));
+      assert.ok(prompt.includes(expectedPath));
+      assert.ok(prompt.includes(`当前任务唯一根目录: ${taskRoot}`));
+    }
+  });
+
+  it('evaluation prompt cannot overwrite the analysis receipt or four-piece files', () => {
+    const prompt = ws.generatePrompt(taskId, 'evaluation').prompt;
+    const writableSection = prompt.split('### 可写入')[1].split('禁止修改')[0];
+    assert.equal(writableSection.includes('receipt.json'), false);
+    assert.equal(writableSection.includes('分析请求.md'), false);
+  });
+
+  it('includes user-entered analysis instructions in the generated prompt', () => {
+    const prompt = ws.generatePrompt(taskId, 'analysis', {
+      goal: '检查收入与现金差异',
+      thinking: '主动寻找替代解释',
+      verification: '关键数字必须双重核对',
+    }).prompt;
+    assert.ok(prompt.includes('用户在工作台填写的分析指令'));
+    assert.ok(prompt.includes('检查收入与现金差异'));
+    assert.ok(prompt.includes('主动寻找替代解释'));
+    assert.ok(prompt.includes('关键数字必须双重核对'));
   });
 
   it('generatePrompt throws on non-existent task', () => {
     assert.throws(() => ws.generatePrompt('bad-id'), /Task not found/);
+  });
+
+  it('generatePrompt rejects unsupported prompt kinds', () => {
+    assert.throws(() => ws.generatePrompt(taskId, 'unknown'), /Unsupported prompt kind/);
   });
 });
 

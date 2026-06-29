@@ -77,6 +77,12 @@ export interface ExternalSourceInfo {
   scanStatus: "ok" | "has_anomalies";
 }
 
+export interface PromptDraft {
+  goal: string;
+  thinking: string;
+  verification: string;
+}
+
 export interface WorkbenchApi {
   getSnapshot(): Promise<AppSnapshot>;
   selectWorkspace(): Promise<AppSnapshot | null>;
@@ -88,7 +94,8 @@ export interface WorkbenchApi {
   readFile(path: string): Promise<string>;
   saveFile(path: string, content: string): Promise<void>;
   revealPath(path: string): Promise<void>;
-  generatePrompt(id: string, kind: "analysis" | "reanalysis" | "evaluation" | "html" | "skill"): Promise<string>;
+  generatePrompt(id: string, kind: "analysis" | "reanalysis" | "evaluation" | "html" | "skill", draft?: PromptDraft): Promise<string>;
+  dispatchPrompt(id: string, kind: "analysis" | "reanalysis", draft?: PromptDraft): Promise<string>;
   getExternalSources(id: string): Promise<ExternalSourceInfo[]>;
   linkExternalSource(id: string, sourcePath: string, label?: string): Promise<ExternalSourceInfo>;
   refreshExternalSource(id: string, sourcePath: string): Promise<ExternalSourceInfo>;

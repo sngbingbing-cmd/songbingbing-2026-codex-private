@@ -7,7 +7,7 @@ import {
   WarningCircle, X
 } from "@phosphor-icons/react";
 import { api } from "./api";
-import type { AppSnapshot, ExternalSourceInfo, FileEntry, GlobalView, StageId, TaskDetail, TaskSummary } from "./types";
+import type { AppSnapshot, ExternalSourceInfo, FileEntry, GlobalView, PromptDraft, StageId, TaskDetail, TaskSummary } from "./types";
 
 const STAGES: Array<{ id: StageId; number: string; title: string; subtitle: string }> = [
   { id: "overview", number: "01", title: "概览", subtitle: "任务状态" },
@@ -125,12 +125,13 @@ function ContextPane({ task, onPick }: { task: TaskDetail; onPick: () => void })
   </section>;
 }
 
-function AnalysisEditor({ task, onCopy, onSave }: { task: TaskDetail; onCopy: () => void; onSave: (content: string) => void }) {
+function AnalysisEditor({ task, onCopy, onDispatch, onSave }: { task: TaskDetail; onCopy: (draft: PromptDraft) => void; onDispatch: (draft: PromptDraft) => void; onSave: (draft: PromptDraft) => void }) {
   const [goal, setGoal] = useState("基于提供的资料，完成示例经营单元的首次分析，输出四件套并形成初步结论与关键洞察。");
   const [thinking, setThinking] = useState("从结构、趋势、异常、对比四个维度展开；主动寻找反例与替代解释；结合历史口径变化，关注指标一致性与可比性。");
   const [verification, setVerification] = useState("严格使用资料所载口径与单位；无法判断的内容明确标注并提出补充；关键结论必须注明来源文件与行/列。");
+  const draft = (): PromptDraft => ({ goal, thinking, verification });
   return <section className="editor-pane pane">
-    <header className="editor-head"><div><h2>首次分析调度单</h2><p>生成时间：2026-06-24 10:21　任务：{task.name}</p></div><div><AppButton tone="ghost">模板</AppButton><AppButton tone="ghost">清空</AppButton><AppButton tone="ghost" icon={<Copy size={14} />} onClick={onCopy}>复制</AppButton><AppButton tone="ghost" onClick={() => onSave([goal, thinking, verification].join("\n\n"))}>保存草稿</AppButton></div></header>
+    <header className="editor-head"><div><h2>首次分析调度单</h2><p>生成时间：2026-06-24 10:21　任务：{task.name}</p></div><div><AppButton tone="ghost">模板</AppButton><AppButton tone="ghost">清空</AppButton><AppButton tone="ghost" icon={<Copy size={14} />} onClick={() => onCopy(draft())}>复制</AppButton><AppButton tone="ghost" onClick={() => onSave(draft())}>保存草稿</AppButton></div></header>
     <div className="editor-scroll">
       <PromptSection number="1" title="必须补充"><div className="mini-table"><span>序号</span><span>补充项</span><span>当前状态</span><span>影响</span><span>建议返回格式</span><i>--</i><i>--</i><i>--</i><i>--</i><i>--</i></div></PromptSection>
       <div className="prompt-variables"><header><strong>Prompt 变量</strong><AppButton tone="ghost">管理</AppButton></header><div><span><b>任务ID</b>{task.name}</span><span><b>领域</b>通用经营分析</span><span><b>报告期间</b>202606</span><span><b>输出粒度</b>万元</span><span><b>单位风险阈值</b>未设置</span><button>+ 添加变量</button></div></div>
@@ -139,15 +140,19 @@ function AnalysisEditor({ task, onCopy, onSave }: { task: TaskDetail; onCopy: ()
       <PromptSection number="4" title="校验与验证要求"><textarea value={verification} onChange={(event) => setVerification(event.target.value)} /></PromptSection>
       <PromptSection number="5" title="输出要求"><div className="output-checks"><label><input type="checkbox" defaultChecked />分析请求</label><label><input type="checkbox" defaultChecked />分析请求.md 补充</label><label><input type="checkbox" defaultChecked />来源清单</label><label><input type="checkbox" defaultChecked />口径映射</label></div></PromptSection>
     </div>
-    <footer className="editor-actions"><AppButton icon={<Copy size={16} />} onClick={onCopy}>复制调度单</AppButton><AppButton tone="primary" icon={<Robot size={17} />} onClick={onCopy}>执行分析 <kbd>{shortcutModifier}↵</kbd></AppButton></footer>
+    <footer className="editor-actions"><AppButton icon={<Copy size={16} />} onClick={() => onCopy(draft())}>复制调度单</AppButton><AppButton tone="primary" icon={<Robot size={17} />} onClick={() => onDispatch(draft())}>开始外部分析</AppButton></footer>
   </section>;
 }
 
 function PromptSection({ number, title, children }: { number: string; title: string; children: React.ReactNode }) { return <section className="prompt-section"><h3>{number}. {title}</h3>{children}</section>; }
 
-function ReceiptPane({ task, onReveal }: { task: TaskDetail; onReveal: () => void }) {
+function ReceiptPane({ task, onReveal, onRefresh }: { task: TaskDetail; onReveal: () => void; onRefresh: () => void }) {
   return <section className="receipt-pane pane"><h2>执行与回执</h2>
-    <div className="receipt-block"><header><strong>首次执行状态</strong></header>{["分析请求", "分析请求.md 补充", "来源清单", "回执映射"].map((item) => <div className="receipt-row" key={item}><CheckCircle size={15} color="#5ca97c" /><span>{item}</span><b>0/1</b></div>)}</div>
+    <div className="receipt-block"><header><strong>执行状态</strong><button onClick={onRefresh} title="刷新回执"><ArrowClockwise size={14} /></button></header>
+      <div className="receipt-row"><CheckCircle size={15} color="#5ca97c" /><span>首次分析</span><b>{task.firstRun.status}</b></div>
+      <div className="receipt-row"><ClockCounterClockwise size={15} color="#7b8b94" /><span>重分析</span><b>{task.reanalysis.status}</b></div>
+      <div className="receipt-row"><Files size={15} color="#7b8b94" /><span>正式输出</span><b>{task.outputs.length}</b></div>
+    </div>
     <div className="receipt-block"><header><strong>最近回执</strong></header><p>{task.firstRun.receipt || "暂无回执记录"}</p></div>
     <div className="receipt-block"><header><strong>验证项（系统自动刷新）</strong><button>查看全部</button></header><p>待处理 {task.validation.length} / 已解决 0</p></div>
     <div className="receipt-block output-preview"><header><strong>输出预览（执行后生成）</strong></header><p>{task.outputs.length ? `最近输出：${task.outputs[0].name}` : "暂无输出内容，执行后可在此预览结果摘要。"}</p></div>
@@ -156,8 +161,11 @@ function ReceiptPane({ task, onReveal }: { task: TaskDetail; onReveal: () => voi
 }
 
 function AnalysisStage({ task, notify, refresh }: { task: TaskDetail; notify: (message: string) => void; refresh: (task: TaskDetail) => void }) {
-  const copyPrompt = async () => { const prompt = await api.generatePrompt(task.id, "analysis"); await navigator.clipboard.writeText(prompt); notify("首次分析调度单已复制"); };
-  return <div className="analysis-canvas"><ContextPane task={task} onPick={async () => refresh(await api.pickFiles(task.id, "raw"))} /><div className="resize-handle" /><AnalysisEditor task={task} onCopy={copyPrompt} onSave={() => notify("调度单草稿已保存")} /><div className="resize-handle" /><ReceiptPane task={task} onReveal={() => api.revealPath(task.path)} /></div>;
+  const copyPrompt = async (draft: PromptDraft) => { const prompt = await api.generatePrompt(task.id, "analysis", draft); await navigator.clipboard.writeText(prompt); notify("首次分析调度单已复制"); };
+  const dispatchPrompt = async (draft: PromptDraft) => { const prompt = await api.dispatchPrompt(task.id, "analysis", draft); await navigator.clipboard.writeText(prompt); refresh(await api.getTask(task.id)); notify("调度单已复制，等待外部Agent回执"); };
+  const refreshReceipt = async () => { refresh(await api.getTask(task.id)); notify("执行状态已刷新"); };
+  const saveDraft = async (draft: PromptDraft) => { await api.saveFile(`${task.path}/notes/prompt-draft.json`, JSON.stringify(draft, null, 2)); notify("调度单草稿已保存"); };
+  return <div className="analysis-canvas"><ContextPane task={task} onPick={async () => refresh(await api.pickFiles(task.id, "raw"))} /><div className="resize-handle" /><AnalysisEditor task={task} onCopy={copyPrompt} onDispatch={dispatchPrompt} onSave={saveDraft} /><div className="resize-handle" /><ReceiptPane task={task} onReveal={() => api.revealPath(`${task.path}/outputs`)} onRefresh={refreshReceipt} /></div>;
 }
 
 function OverviewStage({ task, setStage }: { task: TaskDetail; setStage: (stage: StageId) => void }) {
@@ -264,8 +272,8 @@ function FourPieceStage({ task, notify }: { task: TaskDetail; notify: (m: string
 
 function ValidationStage({ task, refresh, notify }: { task: TaskDetail; refresh: (task: TaskDetail) => void; notify: (m: string) => void }) {
   const [selected, setSelected] = useState(task.validation[0]); const [feedback, setFeedback] = useState("");
-  const copy = async () => { const prompt = await api.generatePrompt(task.id, "reanalysis"); await navigator.clipboard.writeText(prompt); notify("重分析调度单已复制"); };
-  return <div className="validation-workspace"><section className="validation-queue"><header><h2>验证队列</h2><span>待处理 {task.validation.length}</span></header>{task.validation.map((item) => <button className={selected?.id === item.id ? "active" : ""} key={item.id} onClick={() => setSelected(item)}><WarningCircle size={17} /><span><strong>{item.title}</strong><small>{item.source}</small></span><CaretRight size={15} /></button>)}</section><section className="validation-detail"><header><h2>{selected?.title || "暂无待处理项"}</h2><AppButton icon={<Copy size={15} />} onClick={copy}>复制重分析调度单</AppButton></header><div className="detail-block"><span>问题说明</span><p>{selected?.description}</p></div><div className="detail-block"><span>证据位置</span><p>{selected?.source || "未记录"}</p></div><label className="field-label">人工确认与补充<textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="补充口径、业务确认、行动进展..." /></label><div className="detail-actions"><AppButton icon={<UploadSimple size={16} />}>上传附件</AppButton><AppButton tone="primary" onClick={async () => { refresh(await api.writeFeedback(task.id, "conclusion", feedback)); setFeedback(""); notify("已写入回流记录"); }}>提交反馈</AppButton></div></section><ReceiptPane task={task} onReveal={() => api.revealPath(task.path)} /></div>;
+  const dispatch = async () => { const prompt = await api.dispatchPrompt(task.id, "reanalysis"); await navigator.clipboard.writeText(prompt); refresh(await api.getTask(task.id)); notify("重分析调度单已复制，等待外部Agent回执"); };
+  return <div className="validation-workspace"><section className="validation-queue"><header><h2>验证队列</h2><span>待处理 {task.validation.length}</span></header>{task.validation.map((item) => <button className={selected?.id === item.id ? "active" : ""} key={item.id} onClick={() => setSelected(item)}><WarningCircle size={17} /><span><strong>{item.title}</strong><small>{item.source}</small></span><CaretRight size={15} /></button>)}</section><section className="validation-detail"><header><h2>{selected?.title || "暂无待处理项"}</h2><AppButton icon={<Robot size={15} />} onClick={dispatch}>开始重分析</AppButton></header><div className="detail-block"><span>问题说明</span><p>{selected?.description}</p></div><div className="detail-block"><span>证据位置</span><p>{selected?.source || "未记录"}</p></div><label className="field-label">人工确认与补充<textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="补充口径、业务确认、行动进展..." /></label><div className="detail-actions"><AppButton icon={<UploadSimple size={16} />}>上传附件</AppButton><AppButton tone="primary" onClick={async () => { refresh(await api.writeFeedback(task.id, "conclusion", feedback)); setFeedback(""); notify("已写入回流记录"); }}>提交反馈</AppButton></div></section><ReceiptPane task={task} onReveal={() => api.revealPath(`${task.path}/outputs`)} onRefresh={async () => refresh(await api.getTask(task.id))} /></div>;
 }
 
 function DeliveryStage({ task, notify }: { task: TaskDetail; notify: (m: string) => void }) {
@@ -296,7 +304,7 @@ function SemanticCenter({ snapshot, onBack, notify }: { snapshot: AppSnapshot; o
 }
 
 function SettingsView({ snapshot, onSelectWorkspace, onUpdate }: { snapshot: AppSnapshot; onSelectWorkspace: () => void; onUpdate: () => void }) {
-  return <main className="global-content settings"><header className="global-content-head"><div><h1>设置</h1><p>本机工作区、版本升级和应用信息。</p></div></header><section className="settings-section"><h2>工作区</h2><div className="setting-row"><div><strong>当前工作区</strong><p>{snapshot.workspacePath}</p></div><AppButton onClick={onSelectWorkspace}>选择目录</AppButton></div></section><section className="settings-section"><h2>软件更新</h2><div className="setting-row"><div><strong>当前版本 v{snapshot.version}</strong><p>通过 GitHub Releases 获取签名后的新版本。</p></div><AppButton icon={<ArrowClockwise size={16} />} onClick={onUpdate}>检查更新</AppButton></div></section><section className="settings-section"><h2>关于</h2><p>AI原生数据分析工作台 · 作者 宋冰冰 & Codex</p><p>本地优先。业务数据不会随应用源代码公开。</p></section></main>;
+  return <main className="global-content settings"><header className="global-content-head"><div><h1>设置</h1><p>本机工作区、版本升级和应用信息。</p></div></header><section className="settings-section"><h2>工作区</h2><div className="setting-row"><div><strong>当前工作区</strong><p>{snapshot.workspacePath}</p></div><AppButton onClick={onSelectWorkspace}>选择目录</AppButton></div></section><section className="settings-section"><h2>软件更新</h2><div className="setting-row"><div><strong>当前版本 v{snapshot.version}</strong><p>通过 GitHub Releases 获取新版本。</p></div><AppButton icon={<ArrowClockwise size={16} />} onClick={onUpdate}>检查更新</AppButton></div></section><section className="settings-section"><h2>关于</h2><p>AI原生数据分析工作台 · 作者 宋冰冰 & Codex</p><p>本地优先。业务数据不会随应用源代码公开。</p></section></main>;
 }
 
 function StatusBar({ task }: { task: TaskDetail }) { return <footer className="statusbar"><span><ShieldCheck size={15} />工作区健康 <b>健康</b></span><span>文件总数 <b>{task.rawCount}</b></span><span>资料完整度 <b>{task.inputCompleteness}</b></span><span>语义覆盖率 <b>{task.semanticCoverage}%</b></span><span>后台检查 <b>空闲中</b></span></footer>; }

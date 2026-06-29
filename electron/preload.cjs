@@ -10,14 +10,14 @@ async function invoke(channel, ...args) {
 }
 
 function taskStage(task) {
-  if (task.status === 'review') return ['validation', '05 验证'];
+  if (task.status === 'archived') return ['delivery', '06 交付'];
+  if (task.status === 'review' || task.hasReceipt) return ['validation', '05 验证'];
   if (task.status === 'running' || task.hasDispatch) return ['analysis', '03 分析'];
-  if (task.status === 'archived' || task.hasReceipt) return ['delivery', '06 交付'];
   return ['data', '02 资料'];
 }
 
 function taskStatus(task) {
-  if (task.status === 'review') return 'waiting';
+  if (task.status === 'review' || task.hasReceipt) return 'waiting';
   if (task.status === 'running') return 'active';
   return 'ready';
 }
@@ -65,12 +65,13 @@ async function getTaskDetail(id) {
   const summary = await normalizeSummary(task);
   const base = `04-分析任务/${id}`;
   const requiredNames = ['分析请求.md', '来源清单.md', '口径映射.md', '验证清单.md'];
-  const [inboxFiles, rawFiles, outputs, notes, receipt, promptResult, ...requiredResults] = await Promise.all([
+  const [inboxFiles, rawFiles, outputs, notes, receipt, evaluationFile, promptResult, ...requiredResults] = await Promise.all([
     listFiles(base, 'inbox'),
     listFiles(base, 'raw'),
     listFiles(base, 'outputs'),
     listFiles(base, 'notes'),
     invoke('receipt:read', id),
+    invoke('file:read', `${base}/validation/evaluation.json`),
     invoke('prompt:generate', id, 'analysis'),
     ...requiredNames.map((name) => invoke('file:read', `${base}/${name}`)),
   ]);
@@ -95,6 +96,14 @@ async function getTaskDetail(id) {
     source: doc.name,
   }));
   const completeness = requiredDocs.filter((doc) => doc.filled).length;
+  let persistedEvaluation = null;
+  try {
+    persistedEvaluation = evaluationFile?.content ? JSON.parse(evaluationFile.content) : null;
+  } catch {
+    persistedEvaluation = { status: '评测文件格式错误' };
+  }
+  const receiptKind = receipt?.kind || null;
+  const dispatchKind = task.dispatchKind || null;
   return {
     ...summary,
     inboxFiles,
@@ -106,9 +115,9 @@ async function getTaskDetail(id) {
     sourceCoverage: Math.min(100, 35 + rawFiles.length * 10),
     semanticCoverage: rawFiles.length ? 72 : 40,
     inputCompleteness: completeness >= 3 ? '高' : completeness >= 1 ? '中' : '低',
-    firstRun: { status: task.hasReceipt ? '已完成' : task.hasDispatch ? '执行中' : '未执行', time: receipt?.updatedAt, receipt: receipt?.summary },
-    reanalysis: { status: receipt?.kind === 'reanalysis' ? '已完成' : '未执行', time: receipt?.updatedAt },
-    evaluation: receipt?.evaluation || { status: '未评测' },
+    firstRun: { status: task.hasReceipt ? '已完成' : dispatchKind === 'analysis' ? '等待回执' : '未执行', time: receipt?.updatedAt, receipt: receipt?.summary },
+    reanalysis: { status: receiptKind === 'reanalysis' ? '已完成' : dispatchKind === 'reanalysis' ? '等待回执' : '未执行', time: receiptKind === 'reanalysis' ? receipt?.updatedAt : undefined },
+    evaluation: persistedEvaluation || receipt?.evaluation || { status: '未评测' },
     semanticConflicts: 0,
     domainSkill: task.taskType === 'analysis' ? '通用经营分析' : task.taskType,
     prompt: promptResult?.prompt || '',
@@ -184,8 +193,13 @@ const workbench = {
   async revealPath(filePath) {
     await invoke('file:open-finder', relativePath(filePath));
   },
-  async generatePrompt(id, kind) {
-    const result = await invoke('prompt:generate', id, kind);
+  async generatePrompt(id, kind, draft) {
+    const result = await invoke('prompt:generate', id, kind, draft);
+    return result.prompt;
+  },
+  async dispatchPrompt(id, kind, draft) {
+    const result = await invoke('prompt:generate', id, kind, draft);
+    await invoke('dispatch:write', id, { kind, title: `${kind} dispatch`, prompt: result.prompt, status: 'waiting_receipt' });
     return result.prompt;
   },
   async getExternalSources(id) {
