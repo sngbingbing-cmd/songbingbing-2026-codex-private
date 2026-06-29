@@ -1,6 +1,7 @@
 export type StageId = "overview" | "data" | "analysis" | "four-piece" | "validation" | "delivery" | "evaluation";
 export type GlobalView = "tasks" | "semantic" | "evaluation" | "settings";
 export type StatusTone = "ok" | "warning" | "danger" | "muted" | "active";
+export type PromptKind = "analysis" | "reanalysis" | "four-piece" | "evaluation" | "html" | "skill";
 
 export interface FileEntry {
   name: string;
@@ -89,12 +90,13 @@ export interface WorkbenchApi {
   createTask(name: string): Promise<TaskDetail>;
   getTask(id: string): Promise<TaskDetail>;
   archiveTask(id: string, archived: boolean): Promise<void>;
-  pickFiles(id: string, zone: "inbox" | "raw"): Promise<TaskDetail>;
+  pickFiles(id: string, zone: "inbox" | "raw" | "validation"): Promise<TaskDetail>;
   syncFiles(id: string): Promise<TaskDetail>;
   readFile(path: string): Promise<string>;
   saveFile(path: string, content: string): Promise<void>;
   revealPath(path: string): Promise<void>;
-  generatePrompt(id: string, kind: "analysis" | "reanalysis" | "evaluation" | "html" | "skill", draft?: PromptDraft): Promise<string>;
+  generatePrompt(id: string, kind: PromptKind, draft?: PromptDraft): Promise<string>;
+  generateSemanticPrompt(): Promise<string>;
   dispatchPrompt(id: string, kind: "analysis" | "reanalysis", draft?: PromptDraft): Promise<string>;
   getExternalSources(id: string): Promise<ExternalSourceInfo[]>;
   linkExternalSource(id: string, sourcePath: string, label?: string): Promise<ExternalSourceInfo>;

@@ -218,20 +218,25 @@ kbd { padding: 1px 4px; border: 0; border-radius: 3px; color: inherit; backgroun
 .document-workspace { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 620px; border: 1px solid var(--line); border-radius: 5px; background: white; overflow: hidden; }
 .document-workspace > aside { padding: 12px; border-right: 1px solid var(--line); }
 .document-workspace > aside h2 { margin: 0 0 12px; font-size: 14px; }
-.document-workspace > aside button { display: grid; grid-template-columns: 20px 1fr 15px; align-items: center; gap: 8px; width: 100%; min-height: 52px; padding: 7px; border: 0; border-bottom: 1px solid var(--line-2); color: var(--ink); background: white; text-align: left; }
-.document-workspace > aside button.active { color: var(--accent); background: var(--accent-soft); }
+.document-workspace > aside > button { display: grid; grid-template-columns: 20px 1fr 15px; align-items: center; gap: 8px; width: 100%; min-height: 52px; padding: 7px; border: 0; border-bottom: 1px solid var(--line-2); color: var(--ink); background: white; text-align: left; }
+.document-workspace > aside > button.active { color: var(--accent); background: var(--accent-soft); }
+.four-piece-head { display: grid; gap: 8px; margin-bottom: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.four-piece-head h2 { margin-bottom: 3px !important; }
+.four-piece-head small { color: var(--muted); font-size: 8px; line-height: 1.45; }
+.four-piece-head .button { justify-self: start; }
 .document-workspace > aside span strong, .document-workspace > aside span small { display: block; }
 .document-workspace > aside span strong { font-size: 10px; }
 .document-workspace > aside span small { margin-top: 3px; color: var(--muted); font-size: 8px; }
 .document-editor { display: grid; grid-template-rows: auto 1fr; }
 .document-editor header { display: flex; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.inline-actions { display: flex; align-items: center; gap: 6px; }
 .document-editor h2 { margin: 0; font-size: 14px; }
 .document-editor p { margin: 4px 0 0; color: var(--muted); font-size: 9px; }
 .document-editor textarea { min-height: 0; padding: 22px; resize: none; border: 0; outline: 0; color: #354852; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.7; }
 
 .validation-workspace { display: grid; grid-template-columns: 260px minmax(400px, 1fr) minmax(260px, .8fr); min-height: 620px; }
 .validation-queue, .validation-detail { border: 1px solid var(--line); background: white; }
-.validation-queue { border-radius: 5px 0 0 5px; }
+.validation-queue { overflow: auto; border-radius: 5px 0 0 5px; }
 .validation-workspace > .receipt-pane { border-radius: 0 5px 5px 0; }
 .validation-queue header, .validation-detail header { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
 .validation-queue h2, .validation-detail h2 { margin: 0; font-size: 13px; }
@@ -241,7 +246,13 @@ kbd { padding: 1px 4px; border: 0; border-radius: 3px; color: inherit; backgroun
 .validation-queue span strong, .validation-queue span small { display: block; }
 .validation-queue span strong { font-size: 10px; }
 .validation-queue span small { margin-top: 4px; color: var(--muted); font-size: 8px; }
+.validation-queue > button.general-feedback { position: sticky; bottom: 0; border-top: 1px solid var(--line); background: #f8fafb; }
+.queue-empty { display: grid; justify-items: center; gap: 5px; padding: 28px 14px; color: var(--muted); text-align: center; }
+.queue-empty strong { color: var(--ink-2); font-size: 10px; }
+.queue-empty span { font-size: 8px; line-height: 1.5; }
 .validation-detail { padding-bottom: 12px; }
+.validation-detail header > div { min-width: 0; }
+.validation-detail header p { margin: 4px 0 0; color: var(--muted); font-size: 8px; }
 .detail-block { margin: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line-2); }
 .detail-block span, .field-label { display: grid; gap: 6px; color: var(--muted); font-size: 9px; }
 .detail-block p { color: var(--ink-2); font-size: 10px; line-height: 1.6; }
@@ -254,6 +265,7 @@ kbd { padding: 1px 4px; border: 0; border-radius: 3px; color: inherit; backgroun
 .output-list span strong, .output-list span small, .command-row span strong, .command-row span small, .semantic-doc-row span strong, .semantic-doc-row span small { display: block; }
 .output-list strong, .command-row strong, .semantic-doc-row strong { font-size: 10px; }
 .output-list small, .command-row small, .semantic-doc-row small { margin-top: 3px; color: var(--muted); font-size: 8px; }
+.output-empty { padding: 28px 14px; color: var(--muted); text-align: center; font-size: 9px; }
 .command-row:hover, .output-list button:hover, .semantic-doc-row:hover { background: #f7f9fa; }
 .semantic-doc-row.selected { background: #edf7f7; box-shadow: inset 3px 0 #16777d; }
 

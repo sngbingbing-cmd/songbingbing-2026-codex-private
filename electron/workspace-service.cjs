@@ -702,7 +702,7 @@ class WorkspaceService {
     const task = this.getTask(taskId);
     if (!task) throw new Error(`Task not found: ${taskId}`);
 
-    const supportedKinds = new Set(['analysis', 'reanalysis', 'evaluation', 'html', 'skill']);
+    const supportedKinds = new Set(['analysis', 'reanalysis', 'four-piece', 'evaluation', 'html', 'skill']);
     if (!supportedKinds.has(kind)) throw new Error(`Unsupported prompt kind: ${kind}`);
 
     const taskRoot = this.resolvePath(TASKS_DIR, taskId);
@@ -716,6 +716,7 @@ class WorkspaceService {
     const kindConfig = {
       analysis: { label: '首次分析', output: path.join(outputsPath, `${safeTitle}_首次分析.md`) },
       reanalysis: { label: '重分析', output: path.join(outputsPath, `${safeTitle}_重分析.md`) },
+      'four-piece': { label: '四件套补齐', output: path.join(notesPath, '四件套补齐记录.md') },
       evaluation: { label: 'AI评测', output: path.join(validationPath, 'AI评测.md') },
       html: { label: 'HTML报告', output: path.join(outputsPath, `${safeTitle}.html`) },
       skill: { label: 'Skill候选沉淀', output: path.join(notesPath, `${safeTitle}_Skill候选.md`) },
@@ -737,6 +738,8 @@ class WorkspaceService {
     }, null, 2);
     const writableLines = kind === 'evaluation'
       ? [`- 临时检查文件: ${workingPath}`, `- 评测结果: ${validationPath}`]
+      : kind === 'four-piece'
+        ? [`- 四件套: ${fourPiecePaths.join('；')}`, `- 补齐依据与未决问题: ${notesPath}`, `- 仍需人工确认的问题: ${validationPath}`]
       : kind === 'html'
         ? [`- 临时转换文件: ${workingPath}`, `- HTML正式输出: ${outputsPath}`, `- 转换待确认项: ${validationPath}`, `- 最新执行回执: ${receiptPath}`]
         : kind === 'skill'
@@ -824,6 +827,18 @@ class WorkspaceService {
   }
 
   _buildPromptExecutionSteps({ kind, taskRoot, outputsPath, validationPath, kindConfig, fourPiecePaths, receiptPath, receiptExample }) {
+    if (kind === 'four-piece') {
+      return [
+        `1. 读取任务资料、现有四件套、已有正式输出和验证反馈。`,
+        `2. 只补充有证据支持的内容，不得编造口径、来源或业务事实。`,
+        `3. 按用户指令补齐指定文档；未指定时检查并补齐全部四件套：`,
+        ...fourPiecePaths.map((item) => `   - ${item}`),
+        `4. 无法确认的内容保留为待验证项，不得因缺口拒绝完成本次补齐。`,
+        `5. 将补齐依据和实际修改文件清单写入: ${kindConfig.output}`,
+        `6. 本操作不生成新分析报告，也不覆盖 ${receiptPath}。`,
+      ];
+    }
+
     if (kind === 'evaluation') {
       const evaluationJsonPath = path.join(validationPath, 'evaluation.json');
       return [
@@ -864,10 +879,41 @@ class WorkspaceService {
       `4. 根据实际分析刷新四件套：`,
       ...fourPiecePaths.map((item) => `   - ${item}`),
       `5. 将证据索引或计算说明写入 ${path.join(taskRoot, 'notes')}；临时文件写入 ${path.join(taskRoot, 'working')}。`,
-      `6. 将以下JSON写入 ${receiptPath}，按实际结果替换占位内容：`,
+      ...(isReanalysis ? [`6. 如果人工反馈涉及指标口径、实体或数据源定义，将有证据的改进建议写入 ${path.join(validationPath, '语义候选.md')}；不得直接修改正式权威语义层。`] : []),
+      `${isReanalysis ? '7' : '6'}. 将以下JSON写入 ${receiptPath}，按实际结果替换占位内容：`,
       '```json', receiptExample, '```',
-      `7. 不要把正式输出复制到工作区根目录的 06-输出物；当前任务的 outputs 是唯一正式输出位置。`,
+      `${isReanalysis ? '8' : '7'}. 不要把正式输出复制到工作区根目录的 06-输出物；当前任务的 outputs 是唯一正式输出位置。`,
     ];
+  }
+
+  generateSemanticMaintenancePrompt() {
+    const semanticRoot = this.resolvePath('02-权威语义层');
+    const candidateRoot = path.join(semanticRoot, '待确认建议');
+    const formalPaths = ['指标口径表.md', '实体字典.md', '数据源登记表.md']
+      .map((name) => path.join(semanticRoot, name));
+    const candidatePath = path.join(candidateRoot, `AI语义维护候选_${new Date().toISOString().slice(0, 10)}.md`);
+    const prompt = [
+      '# AI原生数据分析工作台｜权威语义维护调度单',
+      '',
+      '## 路径锚点与权限边界',
+      `- 当前工作区唯一根目录: ${this.workspacePath}`,
+      `- 正式权威语义文件（只读）:`,
+      ...formalPaths.map((item) => `  - ${item}`),
+      `- 唯一可写候选目录: ${candidateRoot}`,
+      `- 本次候选文件: ${candidatePath}`,
+      '',
+      '不得直接修改正式权威语义文件。正式定义只能由用户人工确认后合并。',
+      '',
+      '## 维护任务',
+      '1. 读取三个正式语义文件，检查缺失字段、重复定义、口径冲突、过期来源和缺少证据的条目。',
+      '2. 结合工作区已有分析任务的四件套、验证反馈和语义候选，只提炼可复用且有来源支撑的建议。',
+      '3. 对每条建议写明：类型、建议定义、证据路径、适用范围、冲突影响、可信度和需要人工确认的问题。',
+      `4. 将全部结果写入 ${candidatePath}；不得写入其他位置。`,
+      '5. 没有可靠候选时也要写入检查结论，明确说明未发现可发布内容。',
+      '',
+      '最终回复必须列出实际写入的绝对路径。',
+    ].join('\n');
+    return { prompt, candidatePath, createdAt: new Date().toISOString() };
   }
 
   /**

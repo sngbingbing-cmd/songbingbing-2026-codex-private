@@ -641,6 +641,21 @@ describe('Prompt generation', () => {
   it('generatePrompt rejects unsupported prompt kinds', () => {
     assert.throws(() => ws.generatePrompt(taskId, 'unknown'), /Unsupported prompt kind/);
   });
+
+  it('generates a non-blocking four-piece completion contract', () => {
+    const result = ws.generatePrompt(taskId, 'four-piece', { goal: '只补齐来源清单.md' });
+    assert.ok(result.prompt.includes('四件套补齐调度单'));
+    assert.ok(result.prompt.includes('只补齐来源清单.md'));
+    assert.ok(result.prompt.includes('不生成新分析报告'));
+    assert.ok(result.prompt.includes('不覆盖'));
+  });
+
+  it('generates a global semantic maintenance prompt with candidate-only writes', () => {
+    const result = ws.generateSemanticMaintenancePrompt();
+    assert.ok(result.prompt.includes(path.join(tmp, '02-权威语义层', '指标口径表.md')));
+    assert.ok(result.prompt.includes(path.join(tmp, '02-权威语义层', '待确认建议')));
+    assert.ok(result.prompt.includes('不得直接修改正式权威语义文件'));
+  });
 });
 
 // ── Workspace info ────────────────────────────────────────────────

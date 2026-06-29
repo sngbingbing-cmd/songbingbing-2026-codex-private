@@ -272,6 +272,15 @@ IPC_HANDLERS['semantic:read'] = async (_event, category) => {
   }
 };
 
+IPC_HANDLERS['semantic:generate-prompt'] = async () => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try {
+    return asResult(workspaceService.generateSemanticMaintenancePrompt());
+  } catch (e) {
+    return asError(e);
+  }
+};
+
 // Dispatch & Receipt
 IPC_HANDLERS['dispatch:write'] = async (_event, taskId, dispatchData) => {
   if (!workspaceService) return asError(new Error('Workspace not initialized'));

@@ -1,5 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const path = require('node:path');
+const { buildValidationItems } = require('./task-detail-helpers.cjs');
 
 let workspaceInfo = null;
 
@@ -65,11 +66,12 @@ async function getTaskDetail(id) {
   const summary = await normalizeSummary(task);
   const base = `04-分析任务/${id}`;
   const requiredNames = ['分析请求.md', '来源清单.md', '口径映射.md', '验证清单.md'];
-  const [inboxFiles, rawFiles, outputs, notes, receipt, evaluationFile, promptResult, ...requiredResults] = await Promise.all([
+  const [inboxFiles, rawFiles, outputs, notes, validationFiles, receipt, evaluationFile, promptResult, ...requiredResults] = await Promise.all([
     listFiles(base, 'inbox'),
     listFiles(base, 'raw'),
     listFiles(base, 'outputs'),
     listFiles(base, 'notes'),
+    listFiles(base, 'validation'),
     invoke('receipt:read', id),
     invoke('file:read', `${base}/validation/evaluation.json`),
     invoke('prompt:generate', id, 'analysis'),
@@ -88,13 +90,13 @@ async function getTaskDetail(id) {
       content,
     };
   });
-  const validation = requiredDocs.filter((doc) => !doc.filled).map((doc, index) => ({
-    id: `missing-${index}`,
-    title: `${doc.name}尚未补充`,
-    description: '不阻塞分析，但会降低结论边界和可信度。',
-    status: 'pending',
-    source: doc.name,
-  }));
+  const checklistContent = requiredDocs.find((doc) => doc.name === '验证清单.md')?.content || '';
+  const validation = buildValidationItems({
+    requiredDocs,
+    receipt,
+    checklistContent,
+    feedbackFiles: validationFiles.map((file) => file.name),
+  });
   const completeness = requiredDocs.filter((doc) => doc.filled).length;
   let persistedEvaluation = null;
   try {
@@ -110,13 +112,14 @@ async function getTaskDetail(id) {
     rawFiles,
     outputs,
     notes,
+    validationFiles,
     requiredDocs,
     validation,
     sourceCoverage: Math.min(100, 35 + rawFiles.length * 10),
     semanticCoverage: rawFiles.length ? 72 : 40,
     inputCompleteness: completeness >= 3 ? '高' : completeness >= 1 ? '中' : '低',
-    firstRun: { status: task.hasReceipt ? '已完成' : dispatchKind === 'analysis' ? '等待回执' : '未执行', time: receipt?.updatedAt, receipt: receipt?.summary },
-    reanalysis: { status: receiptKind === 'reanalysis' ? '已完成' : dispatchKind === 'reanalysis' ? '等待回执' : '未执行', time: receiptKind === 'reanalysis' ? receipt?.updatedAt : undefined },
+    firstRun: { status: task.hasReceipt ? '已完成' : dispatchKind === 'analysis' ? '等待回执' : '未执行', time: receipt?.completedAt || receipt?.updatedAt, receipt: receipt?.summary },
+    reanalysis: { status: receiptKind === 'reanalysis' ? '已完成' : dispatchKind === 'reanalysis' ? '等待回执' : '未执行', time: receiptKind === 'reanalysis' ? (receipt?.completedAt || receipt?.updatedAt) : undefined },
     evaluation: persistedEvaluation || receipt?.evaluation || { status: '未评测' },
     semanticConflicts: 0,
     domainSkill: task.taskType === 'analysis' ? '通用经营分析' : task.taskType,
@@ -129,15 +132,31 @@ async function semanticSnapshot() {
   const files = result['02-权威语义层'] || [];
   const docs = await Promise.all(files.map(async (file, index) => {
     const stored = await invoke('file:read', `02-权威语义层/${file.name}`);
+    const content = stored?.content || '';
+    const tableRows = content.split('\n').filter((line) => line.trim().startsWith('|'));
+    const dataRows = tableRows.slice(2).filter((line) => !/^\|[\s:|-]+\|$/.test(line.trim()));
+    const incomplete = dataRows.filter((line) => line.split('|').slice(1, -1).some((cell) => !cell.trim() || /待确认|待补充|未知|todo/i.test(cell))).length;
     return {
       id: `semantic-${index}`,
       title: file.name.replace(/\.(md|json)$/i, ''),
-      count: 1,
-      incomplete: 0,
-      content: stored?.content || '',
+      count: dataRows.length,
+      incomplete,
+      content,
     };
   }));
-  return { docs, pending: [] };
+  const pendingEntries = await invoke('file:list-directory', '02-权威语义层/待确认建议');
+  const pending = await Promise.all(pendingEntries.filter((entry) => entry.isFile && /\.(md|json)$/i.test(entry.name)).map(async (entry, index) => {
+    const stored = await invoke('file:read', `02-权威语义层/待确认建议/${entry.name}`);
+    return {
+      id: `semantic-pending-${index}`,
+      type: 'AI候选',
+      title: entry.name.replace(/\.(md|json)$/i, ''),
+      proposed: stored?.content || '',
+      evidence: '详见候选文件中的来源与证据段落',
+      impact: '确认后才可合并到正式语义文件',
+    };
+  }));
+  return { docs, pending };
 }
 
 async function getSnapshot() {
@@ -197,6 +216,10 @@ const workbench = {
     const result = await invoke('prompt:generate', id, kind, draft);
     return result.prompt;
   },
+  async generateSemanticPrompt() {
+    const result = await invoke('semantic:generate-prompt');
+    return result.prompt;
+  },
   async dispatchPrompt(id, kind, draft) {
     const result = await invoke('prompt:generate', id, kind, draft);
     await invoke('dispatch:write', id, { kind, title: `${kind} dispatch`, prompt: result.prompt, status: 'waiting_receipt' });
@@ -222,7 +245,8 @@ const workbench = {
     return files.length ? files[0] : null;
   },
   async writeFeedback(id, category, content) {
-    await invoke('file:save', `04-分析任务/${id}/validation/${category}-${Date.now()}.md`, content);
+    const safeCategory = String(category || 'general').replace(/[^a-zA-Z0-9_-]/g, '_');
+    await invoke('file:save', `04-分析任务/${id}/validation/feedback-${safeCategory}-${Date.now()}.md`, content);
     return getTaskDetail(id);
   },
   async runEvaluation(id) {
