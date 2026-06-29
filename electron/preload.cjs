@@ -134,6 +134,7 @@ async function semanticSnapshot() {
     const stored = await invoke('file:read', `02-权威语义层/${file.name}`);
     const content = stored?.content || '';
     const tableRows = content.split('\n').filter((line) => line.trim().startsWith('|'));
+    const sepLine = tableRows[1] || '';
     const dataRows = tableRows.slice(2).filter((line) => !/^\|[\s:|-]+\|$/.test(line.trim()));
     const incomplete = dataRows.filter((line) => line.split('|').slice(1, -1).some((cell) => !cell.trim() || /待确认|待补充|未知|todo/i.test(cell))).length;
     return {

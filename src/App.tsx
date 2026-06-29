@@ -328,7 +328,7 @@ function IncompleteBar({ content, docName, onRefresh, notify }: { content: strin
   const headerLine = lines.slice(2,3)[0];
   if (!headerLine) return null;
   const colNames = headerLine.split('|').filter((c: string) => c.trim()).map((c: string) => c.trim());
-  const dataLines = lines.slice(4).filter((l: string) => l.trim().startsWith('|'));
+  const dataLines = lines.slice(4).filter((l: string) => l.trim().startsWith('|') && !/^\\|\[\\s:|-]\+\\|\$/.test(l.trim()));
   const items = dataLines.map((l: string, idx: number) => {
     const cells = l.split('|').filter((c: string) => c.trim());
     const row: Record<string,string> = {};
@@ -363,7 +363,7 @@ function FormalView({ snapshot, selectedId, setSelectedId, onRefresh, notify }: 
   if (!headerLine) return <pre>{content}</pre>;
   const colNames = headerLine.split('|').filter((c: string) => c.trim()).map((c: string) => c.trim());
   const firstCol = colNames[0];
-  const dataLines = lines.slice(4).filter((l: string) => l.trim().startsWith('|'));
+  const dataLines = lines.slice(4).filter((l: string) => l.trim().startsWith('|') && !/^\\|\[\\s:|-]\+\\|\$/.test(l.trim()));
   const items = dataLines.map((l: string) => { const cells = l.split('|').filter((c: string) => c.trim()); const obj: Record<string,string> = {}; colNames.forEach((c, i) => { if (cells[i+1]) obj[c] = cells[i+1].trim(); }); return obj; }).filter((o: Record<string,string>) => Object.keys(o).length > 0);
   return <section className="semantic-layout"><div><h2>正式语义文件</h2>{snapshot.semantic.docs.map((doc: any) => <button className={`semantic-doc-row ${doc.id === selectedId ? "selected" : ""}`} key={doc.id} onClick={() => setSelectedId(doc.id)}><BookOpenText size={20} /><span><strong>{doc.title}</strong><small>{doc.count}条正式定义</small></span><CaretRight size={15} /></button>)}</div><div className="formal-view-right"><h2>{selectedDoc.title}</h2><IncompleteBar content={content} docName={selectedDoc.title.replace(/\.md$/,'')} onRefresh={onRefresh} notify={notify} /><div className="semantic-card-list">{items.map((item: Record<string,string>, idx: number) => <div className="semantic-card-item" key={idx}><div className="sci-header"><strong>{item[firstCol] || `条目${idx+1}`}</strong></div><div className="sci-fields">{Object.entries(item).filter(([k]) => k !== firstCol).map(([k, v]) => <div className="sci-field" key={k}><span className="sci-label">{k}</span><span className="sci-value">{v || ''}</span></div>)}</div></div>)}</div></div></section>;
 }
