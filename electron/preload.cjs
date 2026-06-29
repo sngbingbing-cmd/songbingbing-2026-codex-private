@@ -235,8 +235,16 @@ const workbench = {
     await invoke('semantic:approve-candidate', id, confirmedBy);
     return semanticSnapshot();
   },
+  async approveSemanticCandidates(ids, confirmedBy) {
+    for (const id of ids) await invoke('semantic:approve-candidate', id, confirmedBy);
+    return semanticSnapshot();
+  },
   async rejectSemanticCandidate(id, reason) {
     await invoke('semantic:reject-candidate', id, reason);
+    return semanticSnapshot();
+  },
+  async rejectSemanticCandidates(ids, reason) {
+    for (const id of ids) await invoke('semantic:reject-candidate', id, reason);
     return semanticSnapshot();
   },
   async uploadSemanticMaterials() {

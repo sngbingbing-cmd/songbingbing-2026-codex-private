@@ -112,7 +112,9 @@ export interface WorkbenchApi {
   createSemanticCandidate(input: Partial<SemanticCandidate>): Promise<SemanticSnapshot>;
   updateSemanticCandidate(id: string, patch: Partial<SemanticCandidate>): Promise<SemanticSnapshot>;
   approveSemanticCandidate(id: string, confirmedBy: string): Promise<SemanticSnapshot>;
+  approveSemanticCandidates(ids: string[], confirmedBy: string): Promise<SemanticSnapshot>;
   rejectSemanticCandidate(id: string, reason: string): Promise<SemanticSnapshot>;
+  rejectSemanticCandidates(ids: string[], reason: string): Promise<SemanticSnapshot>;
   uploadSemanticMaterials(): Promise<number>;
   generateWordReport(id: string): Promise<{ outputPath: string; outputName: string; sourcePath: string; task: TaskDetail }>;
   dispatchPrompt(id: string, kind: "analysis" | "reanalysis", draft?: PromptDraft): Promise<string>;

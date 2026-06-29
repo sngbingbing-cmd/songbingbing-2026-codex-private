@@ -39,7 +39,9 @@ const mockApi: WorkbenchApi = {
   },
   async updateSemanticCandidate(id, patch) { await wait(); snapshot.semantic.pending = snapshot.semantic.pending.map((item) => item.id === id ? { ...item, ...patch } : item); return structuredClone(snapshot.semantic); },
   async approveSemanticCandidate(id, _confirmedBy) { await wait(); snapshot.semantic.pending = snapshot.semantic.pending.filter((item) => item.id !== id); return structuredClone(snapshot.semantic); },
+  async approveSemanticCandidates(ids, _confirmedBy) { await wait(); snapshot.semantic.pending = snapshot.semantic.pending.filter((item) => !ids.includes(item.id)); return structuredClone(snapshot.semantic); },
   async rejectSemanticCandidate(id, _reason) { await wait(); snapshot.semantic.pending = snapshot.semantic.pending.filter((item) => item.id !== id); return structuredClone(snapshot.semantic); },
+  async rejectSemanticCandidates(ids, _reason) { await wait(); snapshot.semantic.pending = snapshot.semantic.pending.filter((item) => !ids.includes(item.id)); return structuredClone(snapshot.semantic); },
   async uploadSemanticMaterials() { await wait(); return 2; },
   async generateWordReport(_id) {
     await wait(500);

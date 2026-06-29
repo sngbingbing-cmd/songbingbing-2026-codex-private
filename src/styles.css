@@ -345,6 +345,12 @@ kbd { padding: 1px 4px; border: 0; border-radius: 3px; color: inherit; backgroun
 .semantic-form textarea, .semantic-review-card textarea { min-height: 68px; resize: vertical; }
 .semantic-ai-intake > .button { margin-bottom: 4px; }
 .semantic-review-list { display: grid; gap: 10px; }
+.semantic-batch-bar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px; background: white; font-size: 11px; position: sticky; top: 0; z-index: 10; }
+.semantic-checkbox { position: relative; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.semantic-checkbox input { position: absolute; opacity: 0; width: 0; height: 0; }
+.semantic-checkbox .checkmark { display: inline-block; width: 16px; height: 16px; border: 1.5px solid #82929c; border-radius: 3px; background: white; }
+.semantic-checkbox input:checked + .checkmark { border-color: var(--accent); background: var(--accent); }
+.semantic-checkbox input:checked + .checkmark::after { content: ""; display: block; margin: 2px 0 0 4px; width: 5px; height: 9px; border: solid white; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .semantic-review-card > header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .semantic-review-card > header span { padding: 3px 6px; border-radius: 3px; color: var(--accent); background: var(--accent-soft); font-size: 8px; }
 .semantic-review-card > header strong { font-size: 12px; }

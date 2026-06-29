@@ -11,6 +11,7 @@ design/*.png
 # Never commit local business workspaces or task data.
 AI原生数据分析工作台/
 **/01-投喂区/*
+**/02-权威语义层/**
 **/04-分析任务/*
 **/06-输出物/*
 !workspace-template/01-投喂区/.gitkeep
