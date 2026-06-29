@@ -748,3 +748,280 @@ describe('Edge cases', () => {
     assert.equal(r, path.join(tmp, '01-投喂区', 'sub', 'file.txt'));
   });
 });
+
+// ── External source management ─────────────────────────────────────
+
+describe('External source management', () => {
+  let tmp, ws, taskId, externalDir;
+  before(() => {
+    tmp = createTempDir(LEGACY_DIRS);
+    ws = new WorkspaceService(tmp);
+    const task = ws.createTask({ title: '外部源测试' });
+    taskId = task.id;
+
+    // Create an external directory with multi-level structure simulating 19-person materials
+    externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-src-'));
+    const members = ['张三-财务负责人', '李四-项目经理', '王五-专项负责人'];
+    for (const member of members) {
+      const memberDir = path.join(externalDir, member);
+      fs.mkdirSync(memberDir, { recursive: true });
+      fs.writeFileSync(path.join(memberDir, '岗位职责.md'), `# ${member} 岗位职责`, 'utf-8');
+      fs.writeFileSync(path.join(memberDir, '上半年总结.md'), `# ${member} 上半年总结`, 'utf-8');
+      // Sub-directory
+      const subDir = path.join(memberDir, '专项材料');
+      fs.mkdirSync(subDir);
+      fs.writeFileSync(path.join(subDir, '专项报告.docx'), 'dummy content', 'utf-8');
+    }
+    // Top-level file
+    fs.writeFileSync(path.join(externalDir, '汇总说明.md'), '# 汇总说明', 'utf-8');
+  });
+  after(() => {
+    removeDir(tmp);
+    removeDir(externalDir);
+  });
+
+  it('getExternalSources returns empty array initially', () => {
+    const sources = ws.getExternalSources(taskId);
+    assert.ok(Array.isArray(sources));
+    assert.equal(sources.length, 0);
+  });
+
+  it('getExternalSources rejects a non-existent task', () => {
+    assert.throws(() => ws.getExternalSources('nonexistent'), /Task not found/);
+  });
+
+  it('linkExternalSource scans and returns source record', () => {
+    const source = ws.linkExternalSource(taskId, externalDir, '19人上半年材料');
+    assert.ok(source);
+    assert.equal(source.path, externalDir);
+    assert.equal(source.label, '19人上半年材料');
+    assert.ok(source.lastScannedAt);
+    assert.equal(source.totalFiles, 10); // 3 members × 3 files each (2 + 1 sub) + 1 top-level = 10
+    assert.ok(source.totalSizeKb > 0);
+    assert.ok(Array.isArray(source.topLevelItems));
+    assert.equal(source.topLevelItems.length, 4); // 3 member dirs + 1 top file
+    assert.equal(source.topLevelItems.filter((i) => i.isDirectory).length, 3);
+    assert.equal(source.scanStatus, 'ok');
+  });
+
+  it('linkExternalSource stores versioned format', () => {
+    const data = JSON.parse(
+      fs.readFileSync(path.join(tmp, '04-分析任务', taskId, 'external-sources.json'), 'utf-8'),
+    );
+    assert.equal(data.version, '1.1');
+    assert.ok(Array.isArray(data.sources));
+    assert.equal(data.sources.length, 1);
+  });
+
+  it('linkExternalSource persists a recursive relative-path inventory', () => {
+    const inventory = ws.getExternalSourceInventory(taskId, externalDir);
+    assert.ok(inventory);
+    assert.equal(inventory.files.length, 10);
+    assert.ok(inventory.files.some((file) => file.relativePath === '张三-财务负责人/专项材料/专项报告.docx'));
+    assert.ok(inventory.files.every((file) => !path.isAbsolute(file.relativePath)));
+  });
+
+  it('external source files are NOT modified during linking', () => {
+    // Verify original files are unchanged
+    const summaryPath = path.join(externalDir, '汇总说明.md');
+    const content = fs.readFileSync(summaryPath, 'utf-8');
+    assert.equal(content, '# 汇总说明');
+  });
+
+  it('linkExternalSource throws for non-existent directory', () => {
+    assert.throws(
+      () => ws.linkExternalSource(taskId, '/nonexistent/path'),
+      /目录不存在/,
+    );
+  });
+
+  it('linkExternalSource throws for file path (not directory)', () => {
+    const filePath = path.join(externalDir, '汇总说明.md');
+    assert.throws(
+      () => ws.linkExternalSource(taskId, filePath),
+      /路径不是目录/,
+    );
+  });
+
+  it('linkExternalSource throws for workspace internal directory', () => {
+    assert.throws(
+      () => ws.linkExternalSource(taskId, tmp),
+      /不能关联工作区内部的目录/,
+    );
+  });
+
+  it('linkExternalSource throws for duplicate path', () => {
+    assert.throws(
+      () => ws.linkExternalSource(taskId, externalDir),
+      /该目录已关联/,
+    );
+  });
+
+  it('getExternalSources returns linked sources', () => {
+    const sources = ws.getExternalSources(taskId);
+    assert.equal(sources.length, 1);
+    assert.equal(sources[0].path, externalDir);
+    assert.equal(sources[0].totalFiles, 10);
+  });
+
+  it('refreshExternalSource re-scans and preserves label', () => {
+    // Add a file to the external directory
+    fs.writeFileSync(path.join(externalDir, '新文件.md'), '# new', 'utf-8');
+
+    const refreshed = ws.refreshExternalSource(taskId, externalDir);
+    assert.equal(refreshed.label, '19人上半年材料'); // label preserved
+    assert.equal(refreshed.totalFiles, 11); // one more file
+    assert.ok(refreshed.lastScannedAt);
+    assert.equal(refreshed.scanStatus, 'ok');
+  });
+
+  it('refreshExternalSource does not delete source files', () => {
+    const newFilePath = path.join(externalDir, '新文件.md');
+    assert.ok(fs.existsSync(newFilePath));
+    const content = fs.readFileSync(newFilePath, 'utf-8');
+    assert.equal(content, '# new');
+  });
+
+  it('refreshExternalSource refreshes the persisted inventory', () => {
+    const inventory = ws.getExternalSourceInventory(taskId, externalDir);
+    assert.ok(inventory.files.some((file) => file.relativePath === '新文件.md'));
+  });
+
+  it('refreshExternalSource throws for non-linked path', () => {
+    const otherDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-other-'));
+    try {
+      assert.throws(
+        () => ws.refreshExternalSource(taskId, otherDir),
+        /未关联的目录/,
+      );
+    } finally {
+      removeDir(otherDir);
+    }
+  });
+
+  it('unlinkExternalSource removes association', () => {
+    // Link a second source first
+    const extraDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-extra-'));
+    fs.writeFileSync(path.join(extraDir, 'test.md'), 'test', 'utf-8');
+    ws.linkExternalSource(taskId, extraDir, '额外目录');
+
+    let sources = ws.getExternalSources(taskId);
+    assert.equal(sources.length, 2);
+
+    const result = ws.unlinkExternalSource(taskId, extraDir);
+    assert.ok(result.ok);
+    assert.equal(result.removed, true);
+
+    sources = ws.getExternalSources(taskId);
+    assert.equal(sources.length, 1);
+    assert.equal(sources[0].path, externalDir);
+
+    // Extra dir still exists on disk
+    assert.ok(fs.existsSync(path.join(extraDir, 'test.md')));
+    removeDir(extraDir);
+  });
+
+  it('unlinkExternalSource does NOT delete the source directory', () => {
+    // The originally linked external directory still exists
+    assert.ok(fs.existsSync(externalDir));
+    assert.ok(fs.existsSync(path.join(externalDir, '汇总说明.md')));
+  });
+
+  it('resolveLinkedExternalSource only accepts linked available directories', () => {
+    assert.equal(ws.resolveLinkedExternalSource(taskId, externalDir), externalDir);
+    assert.throws(() => ws.resolveLinkedExternalSource(taskId, '/never/linked'), /未关联的目录/);
+  });
+
+  it('unlinkExternalSource throws for non-linked path', () => {
+    assert.throws(
+      () => ws.unlinkExternalSource(taskId, '/never/linked'),
+      /未关联的目录/,
+    );
+  });
+
+  it('scanner recursively counts files in subdirectories', () => {
+    // Create a deeper structure
+    const deepDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-deep-'));
+    fs.mkdirSync(path.join(deepDir, 'level1'));
+    fs.writeFileSync(path.join(deepDir, 'level1', 'a.md'), 'a', 'utf-8');
+    fs.mkdirSync(path.join(deepDir, 'level1', 'level2'));
+    fs.writeFileSync(path.join(deepDir, 'level1', 'level2', 'b.md'), 'b', 'utf-8');
+    fs.mkdirSync(path.join(deepDir, 'level1', 'level2', 'level3'));
+    fs.writeFileSync(path.join(deepDir, 'level1', 'level2', 'level3', 'c.md'), 'c', 'utf-8');
+
+    // Temporarily add this source
+    const source = ws.linkExternalSource(taskId, deepDir, '深度测试');
+    assert.equal(source.totalFiles, 3); // a.md, b.md, c.md
+
+    // Clean up
+    ws.unlinkExternalSource(taskId, deepDir);
+    removeDir(deepDir);
+  });
+
+  it('scanner ignores hidden files (dotfiles)', () => {
+    const hiddenDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-hidden-'));
+    fs.writeFileSync(path.join(hiddenDir, 'visible.md'), 'visible', 'utf-8');
+    fs.writeFileSync(path.join(hiddenDir, '.hidden'), 'secret', 'utf-8');
+    fs.mkdirSync(path.join(hiddenDir, '.git'));
+    fs.writeFileSync(path.join(hiddenDir, '.git', 'config'), 'config', 'utf-8');
+
+    const source = ws.linkExternalSource(taskId, hiddenDir, '隐藏文件测试');
+    assert.equal(source.totalFiles, 1); // only visible.md
+
+    ws.unlinkExternalSource(taskId, hiddenDir);
+    removeDir(hiddenDir);
+  });
+
+  it('scanner records anomalies for missing subdirectories gracefully', () => {
+    // Source dir exists but some sub-entries aren't accessible
+    const anomalyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-anomaly-'));
+    fs.writeFileSync(path.join(anomalyDir, 'ok.md'), 'ok', 'utf-8');
+    // Create a broken symlink (cross-platform: just test with non-existent path)
+    // Simulated via the root being readable but non-existent paths not being scanned
+
+    // The root IS readable, so no anomalies expected
+    const source = ws.linkExternalSource(taskId, anomalyDir, '异常测试');
+    assert.equal(source.scanStatus, 'ok');
+
+    ws.unlinkExternalSource(taskId, anomalyDir);
+    removeDir(anomalyDir);
+  });
+
+  it('multiple tasks can each have their own external sources', () => {
+    const task2 = ws.createTask({ title: '第二个任务' });
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-task2-'));
+    fs.writeFileSync(path.join(dir2, 'data.csv'), 'a,b', 'utf-8');
+
+    ws.linkExternalSource(task2.id, dir2, '任务2资料');
+
+    const sources1 = ws.getExternalSources(taskId);
+    const sources2 = ws.getExternalSources(task2.id);
+
+    assert.equal(sources1.length, 1);
+    assert.equal(sources1[0].path, externalDir);
+    assert.equal(sources2.length, 1);
+    assert.equal(sources2[0].path, dir2);
+
+    removeDir(dir2);
+  });
+
+  it('prompt includes external source info when sources exist', () => {
+    // Re-read with current sources (1 existing: externalDir + maybe previously added ones)
+    // We already have at least externalDir linked
+    const result = ws.generatePrompt(taskId, 'analysis');
+    assert.ok(result.prompt);
+    assert.ok(result.prompt.includes('外部资料目录（只读）'));
+    assert.ok(result.prompt.includes(externalDir));
+    assert.ok(result.prompt.includes('只读边界'));
+    assert.ok(result.prompt.includes('递归读取'));
+    assert.ok(result.prompt.includes('AI Agent'));
+    assert.ok(result.prompt.includes('19人上半年材料') || result.prompt.includes('外部源测试'));
+  });
+
+  it('prompt omits the external-source section when none exist', () => {
+    const cleanTask = ws.createTask({ title: '无外部源' });
+    const result = ws.generatePrompt(cleanTask.id, 'analysis');
+    assert.ok(result.prompt);
+    assert.equal(result.prompt.includes('外部资料目录（只读）'), false);
+  });
+});

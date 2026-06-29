@@ -66,6 +66,17 @@ export interface AppSnapshot {
   update: { status: "idle" | "checking" | "available" | "current" | "error"; version?: string };
 }
 
+export interface ExternalSourceInfo {
+  path: string;
+  label: string;
+  lastScannedAt: string;
+  totalFiles: number;
+  totalSizeKb: number;
+  topLevelItems: Array<{ name: string; isDirectory: boolean }>;
+  anomalies: string[];
+  scanStatus: "ok" | "has_anomalies";
+}
+
 export interface WorkbenchApi {
   getSnapshot(): Promise<AppSnapshot>;
   selectWorkspace(): Promise<AppSnapshot | null>;
@@ -78,6 +89,12 @@ export interface WorkbenchApi {
   saveFile(path: string, content: string): Promise<void>;
   revealPath(path: string): Promise<void>;
   generatePrompt(id: string, kind: "analysis" | "reanalysis" | "evaluation" | "html" | "skill"): Promise<string>;
+  getExternalSources(id: string): Promise<ExternalSourceInfo[]>;
+  linkExternalSource(id: string, sourcePath: string, label?: string): Promise<ExternalSourceInfo>;
+  refreshExternalSource(id: string, sourcePath: string): Promise<ExternalSourceInfo>;
+  unlinkExternalSource(id: string, sourcePath: string): Promise<{ ok: boolean }>;
+  revealExternalSource(id: string, sourcePath: string): Promise<void>;
+  pickDirectory(): Promise<string | null>;
   writeFeedback(id: string, category: string, content: string): Promise<TaskDetail>;
   runEvaluation(id: string): Promise<TaskDetail>;
   checkForUpdates(): Promise<{ status: string; version?: string }>;

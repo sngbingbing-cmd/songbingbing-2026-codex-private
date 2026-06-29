@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Archive, ArrowClockwise, Bell, BookOpenText, CaretDown, CaretRight, Check,
   CheckCircle, ClipboardText, ClockCounterClockwise, Copy, Database, File, FileCsv,
-  FileDoc, FileMd, Files, FolderOpen, Gear, HardDrives, ListChecks, MagnifyingGlass,
+  FileDoc, FileMd, Files, Folder, FolderOpen, Gear, HardDrives, ListChecks, MagnifyingGlass,
   Plus, Robot, ShieldCheck, SidebarSimple, Sparkle, SquaresFour, UploadSimple,
   WarningCircle, X
 } from "@phosphor-icons/react";
 import { api } from "./api";
-import type { AppSnapshot, FileEntry, GlobalView, StageId, TaskDetail, TaskSummary } from "./types";
+import type { AppSnapshot, ExternalSourceInfo, FileEntry, GlobalView, StageId, TaskDetail, TaskSummary } from "./types";
 
 const STAGES: Array<{ id: StageId; number: string; title: string; subtitle: string }> = [
   { id: "overview", number: "01", title: "概览", subtitle: "任务状态" },
@@ -171,9 +171,89 @@ function OverviewStage({ task, setStage }: { task: TaskDetail; setStage: (stage:
 
 function Progress({ label, value }: { label: string; value: number }) { return <div className="progress-row"><span>{label}</span><i><b style={{ width: `${value}%` }} /></i><strong>{value}%</strong></div>; }
 
+function ExternalSourcesModule({ taskId, notify }: { taskId: string; notify: (m: string) => void }) {
+  const [sources, setSources] = useState<ExternalSourceInfo[]>([]);
+  const [processingPaths, setProcessingPaths] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const loadSources = useCallback(async () => { setLoading(true); setSources(await api.getExternalSources(taskId)); setLoading(false); }, [taskId]);
+  useEffect(() => { loadSources(); }, [loadSources]);
+
+  const handleLink = async () => {
+    const dir = await api.pickDirectory();
+    if (!dir) return;
+    try {
+      await api.linkExternalSource(taskId, dir);
+      notify("外部目录已关联");
+      await loadSources();
+    } catch (e: any) {
+      notify(e.message || "关联失败");
+    }
+  };
+
+  const handleRefresh = async (path: string) => {
+    setProcessingPaths((prev) => new Set(prev).add(path));
+    try {
+      await api.refreshExternalSource(taskId, path);
+      notify("目录已刷新");
+      await loadSources();
+    } catch (e: any) {
+      notify(e.message || "刷新失败");
+    }
+    setProcessingPaths((prev) => { const next = new Set(prev); next.delete(path); return next; });
+  };
+
+  const handleUnlink = async (path: string) => {
+    if (!window.confirm("解除关联不会删除原始目录。确认解除？")) return;
+    try {
+      await api.unlinkExternalSource(taskId, path);
+      notify("已解除关联");
+      await loadSources();
+    } catch (e: any) {
+      notify(e.message || "解除关联失败");
+    }
+  };
+
+  const trunc = (p: string, max = 50) => p.length <= max ? p : p.slice(0, 22) + "…" + p.slice(-26);
+  const scanTime = (value: string) => new Date(value).toLocaleString("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+
+  if (loading) return <section className="work-section external-sources-section external-sources-loading"><Spinner /><span>正在读取关联目录</span></section>;
+
+  return <section className="work-section external-sources-section">
+    <header><div><h2>外部资料目录</h2><span>{sources.length} 个关联目录</span></div><AppButton tone="primary" icon={<Folder size={16} />} onClick={handleLink}>关联目录</AppButton></header>
+    {sources.length === 0 ? <div className="external-sources-empty">
+      <Folder size={28} /><strong>尚未关联外部资料目录</strong><span>关联后可通过 AI 调度提示词让外部 Agent 递归读取</span>
+    </div> : <div className="external-sources-list">
+      {sources.map((source) => <div key={source.path} className="external-source-row">
+        <div className="external-source-info">
+          <div className="external-source-path"><FolderOpen size={18} /><span title={source.path}>{trunc(source.path)}</span></div>
+          <div className="external-source-meta">
+            <span title="顶层目录">{source.topLevelItems.filter((i) => i.isDirectory).length} 个顶层目录</span><span>{source.totalFiles} 个文件</span>
+            <span>{source.totalSizeKb >= 1024 ? (source.totalSizeKb / 1024).toFixed(1) + " MB" : source.totalSizeKb + " KB"}</span>
+            {source.anomalies.length > 0 ? <span className="anomaly-badge" title={source.anomalies.join("\n")}><WarningCircle size={14} />{source.anomalies.length} 个异常</span> : <span className="scan-ok">扫描正常</span>}
+          </div>
+          <div className="external-source-dirs">
+            <span>目录: {source.topLevelItems.filter((i) => i.isDirectory).slice(0, 4).map((i) => i.name).join("、")}{source.topLevelItems.filter((i) => i.isDirectory).length > 4 ? ` 等 ${source.topLevelItems.filter((i) => i.isDirectory).length} 个` : ""}</span>
+          </div>
+          <div className="external-source-scan"><span>扫描于 {scanTime(source.lastScannedAt)}</span></div>
+        </div>
+        <div className="external-source-actions">
+          <button className="source-action-btn" title="重新扫描" onClick={() => handleRefresh(source.path)} disabled={processingPaths.has(source.path)}>{processingPaths.has(source.path) ? <Spinner /> : <ArrowClockwise size={16} />}</button>
+          <button className="source-action-btn" title="在 Finder 中显示" onClick={() => api.revealExternalSource(taskId, source.path)}><MagnifyingGlass size={16} /></button>
+          <button className="source-action-btn danger" title="解除关联" onClick={() => handleUnlink(source.path)}><X size={16} /></button>
+        </div>
+      </div>)}
+    </div>}
+  </section>;
+}
+
 function DataStage({ task, refresh, notify }: { task: TaskDetail; refresh: (task: TaskDetail) => void; notify: (m: string) => void }) {
-  return <div className="two-column-stage"><section className="work-section"><header><div><h2>文件投喂</h2><span>进入投喂区后再同步至正式 raw</span></div><AppButton tone="primary" icon={<Plus size={16} />} onClick={async () => refresh(await api.pickFiles(task.id, "inbox"))}>选择文件</AppButton></header><button className="large-dropzone" onClick={async () => refresh(await api.pickFiles(task.id, "inbox"))}><UploadSimple size={32} /><strong>拖拽或点击选择文件</strong><span>支持 Excel、Word、PDF、PPT、Markdown、CSV</span></button></section>
-  <section className="work-section"><header><div><h2>输入状态</h2><span>资料完整度 {task.inputCompleteness}</span></div><AppButton icon={<ArrowClockwise size={16} />} onClick={async () => { refresh(await api.syncFiles(task.id)); notify("已同步到 raw"); }}>同步到 raw</AppButton></header><div className="file-table"><div className="file-table-head"><span>文件名</span><span>区域</span><span>可信度</span><span>更新时间</span></div>{task.rawFiles.map((file) => <div key={file.path}><span><IconForFile file={file} />{file.name}</span><span>raw</span><span>{file.trust}</span><span>{file.modifiedAt}</span></div>)}</div></section></div>;
+  return <div className="data-stage-wrapper">
+    <div className="two-column-stage"><section className="work-section"><header><div><h2>文件投喂</h2><span>进入投喂区后再同步至正式 raw</span></div><AppButton tone="primary" icon={<Plus size={16} />} onClick={async () => refresh(await api.pickFiles(task.id, "inbox"))}>选择文件</AppButton></header><button className="large-dropzone" onClick={async () => refresh(await api.pickFiles(task.id, "inbox"))}><UploadSimple size={32} /><strong>拖拽或点击选择文件</strong><span>支持 Excel、Word、PDF、PPT、Markdown、CSV</span></button></section>
+    <section className="work-section"><header><div><h2>输入状态</h2><span>资料完整度 {task.inputCompleteness}</span></div><AppButton icon={<ArrowClockwise size={16} />} onClick={async () => { refresh(await api.syncFiles(task.id)); notify("已同步到 raw"); }}>同步到 raw</AppButton></header><div className="file-table"><div className="file-table-head"><span>文件名</span><span>区域</span><span>可信度</span><span>更新时间</span></div>{task.rawFiles.map((file) => <div key={file.path}><span><IconForFile file={file} />{file.name}</span><span>raw</span><span>{file.trust}</span><span>{file.modifiedAt}</span></div>)}</div></section></div>
+    <ExternalSourcesModule taskId={task.id} notify={notify} />
+  </div>;
 }
 
 function FourPieceStage({ task, notify }: { task: TaskDetail; notify: (m: string) => void }) {

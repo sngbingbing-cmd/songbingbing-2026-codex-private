@@ -188,6 +188,25 @@ const workbench = {
     const result = await invoke('prompt:generate', id, kind);
     return result.prompt;
   },
+  async getExternalSources(id) {
+    return invoke('source:list', id);
+  },
+  async linkExternalSource(id, sourcePath, label) {
+    return invoke('source:link', id, sourcePath, label);
+  },
+  async refreshExternalSource(id, sourcePath) {
+    return invoke('source:refresh', id, sourcePath);
+  },
+  async unlinkExternalSource(id, sourcePath) {
+    return invoke('source:unlink', id, sourcePath);
+  },
+  async revealExternalSource(id, sourcePath) {
+    return invoke('source:reveal', id, sourcePath);
+  },
+  async pickDirectory() {
+    const files = await invoke('file:select', { directories: true });
+    return files.length ? files[0] : null;
+  },
   async writeFeedback(id, category, content) {
     await invoke('file:save', `04-分析任务/${id}/validation/${category}-${Date.now()}.md`, content);
     return getTaskDetail(id);

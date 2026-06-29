@@ -2,10 +2,16 @@
 
 ## 分层
 
-- Renderer：React + TypeScript，负责七阶段工作流、语义中心和状态呈现。
+- Renderer：React + TypeScript，负责七阶段工作流、语义中心、外部资料来源管理和状态呈现。
 - Preload：将产品级 `window.workbench` 接口映射到白名单 IPC。
 - Main：Electron 窗口、文件选择、Finder、自动更新与 IPC 注册。
-- Workspace Service：任务、文件、提示词、执行回执和权威语义的本地读写。
+- Workspace Service：任务、文件、外部目录关联、提示词、执行回执和权威语义的本地读写。
+
+## 外部资料目录
+
+外部目录以引用方式关联（非复制），扫描保留相对路径并递归统计。关联、刷新、解除关联均不修改或删除外部目录。
+扫描异常逐项记录，不影响整体盘点完成。来源摘要写入 `external-sources.json`，递归文件清单写入 `external-source-inventory.json`。
+AI 调度提示词自动注入外部来源绝对路径、盘点摘要、只读边界和递归读取要求。
 
 ## 数据流
 

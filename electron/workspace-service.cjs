@@ -13,6 +13,8 @@ const LEGACY_DIRS = [
 ];
 
 const TASKS_DIR = '04-分析任务';
+const EXTERNAL_SOURCES_FILE = 'external-sources.json';
+const EXTERNAL_INVENTORY_FILE = 'external-source-inventory.json';
 
 class WorkspaceService {
   /**
@@ -440,6 +442,254 @@ class WorkspaceService {
     return result;
   }
 
+  // ── External source management ────────────────────────────────────
+
+  /**
+   * Get all external source references for a task.
+   * @param {string} taskId
+   * @returns {object[]}
+   */
+  getExternalSources(taskId) {
+    this._requireTask(taskId);
+    const data = this._readJson(TASKS_DIR, taskId, EXTERNAL_SOURCES_FILE);
+    return data && Array.isArray(data.sources) ? data.sources : [];
+  }
+
+  /**
+   * Return the persisted recursive file inventory for a linked source.
+   * @param {string} taskId
+   * @param {string} sourcePath
+   * @returns {object|null}
+   */
+  getExternalSourceInventory(taskId, sourcePath) {
+    this._requireTask(taskId);
+    const resolved = path.resolve(sourcePath);
+    const data = this._readJson(TASKS_DIR, taskId, EXTERNAL_INVENTORY_FILE);
+    const inventories = data && Array.isArray(data.sources) ? data.sources : [];
+    return inventories.find((item) => item.path === resolved) || null;
+  }
+
+  _requireTask(taskId) {
+    if (!this.getTask(taskId)) throw new Error(`Task not found: ${taskId}`);
+  }
+
+  _getExternalInventories(taskId) {
+    const data = this._readJson(TASKS_DIR, taskId, EXTERNAL_INVENTORY_FILE);
+    return data && Array.isArray(data.sources) ? data.sources : [];
+  }
+
+  _writeExternalState(taskId, sources, inventories) {
+    this._writeJson({ sources, version: '1.1' }, TASKS_DIR, taskId, EXTERNAL_SOURCES_FILE);
+    this._writeJson({ sources: inventories, version: '1.1' }, TASKS_DIR, taskId, EXTERNAL_INVENTORY_FILE);
+  }
+
+  /**
+   * Associate (link) an external directory to a task. Scans it recursively
+   * but does NOT copy or modify any files in the external directory.
+   * @param {string} taskId
+   * @param {string} sourcePath - Absolute path to external directory
+   * @param {string} [label] - Optional display label
+   * @returns {object} The linked source record
+   */
+  linkExternalSource(taskId, sourcePath, label) {
+    this._requireTask(taskId);
+    const resolved = path.resolve(sourcePath);
+    if (!fs.existsSync(resolved)) throw new Error(`目录不存在: ${sourcePath}`);
+    if (!fs.statSync(resolved).isDirectory()) throw new Error(`路径不是目录: ${sourcePath}`);
+
+    // Prevent linking workspace itself or subdirectories
+    const normalized = path.normalize(resolved);
+    const wsNormalized = path.normalize(this.workspacePath);
+    if (normalized === wsNormalized || normalized.startsWith(wsNormalized + path.sep)) {
+      throw new Error('不能关联工作区内部的目录');
+    }
+
+    const sources = this.getExternalSources(taskId);
+    const inventories = this._getExternalInventories(taskId);
+    if (sources.some((s) => s.path === resolved)) {
+      throw new Error('该目录已关联');
+    }
+
+    const scanResult = this._scanExternalDirectory(resolved);
+    const source = {
+      path: resolved,
+      label: label || path.basename(resolved),
+      lastScannedAt: new Date().toISOString(),
+      totalFiles: scanResult.totalFiles,
+      totalSizeKb: scanResult.totalSizeKb,
+      topLevelItems: scanResult.topLevelItems,
+      anomalies: scanResult.anomalies,
+      scanStatus: scanResult.anomalies.length > 0 ? 'has_anomalies' : 'ok',
+    };
+
+    sources.push(source);
+    inventories.push({
+      path: resolved,
+      label: source.label,
+      lastScannedAt: source.lastScannedAt,
+      files: scanResult.files,
+      anomalies: scanResult.anomalies,
+    });
+    this._writeExternalState(taskId, sources, inventories);
+    return source;
+  }
+
+  /**
+   * Re-scan an associated external directory and update its metadata.
+   * @param {string} taskId
+   * @param {string} sourcePath - Absolute path of the linked directory
+   * @returns {object} Updated source record
+   */
+  refreshExternalSource(taskId, sourcePath) {
+    this._requireTask(taskId);
+    const resolved = path.resolve(sourcePath);
+    const sources = this.getExternalSources(taskId);
+    const inventories = this._getExternalInventories(taskId);
+    const index = sources.findIndex((s) => s.path === resolved);
+    if (index === -1) throw new Error('未关联的目录');
+
+    const scanResult = this._scanExternalDirectory(resolved);
+
+    sources[index] = {
+      ...sources[index],
+      lastScannedAt: new Date().toISOString(),
+      totalFiles: scanResult.totalFiles,
+      totalSizeKb: scanResult.totalSizeKb,
+      topLevelItems: scanResult.topLevelItems,
+      anomalies: scanResult.anomalies,
+      scanStatus: scanResult.anomalies.length > 0 ? 'has_anomalies' : 'ok',
+    };
+
+    const inventory = {
+      path: resolved,
+      label: sources[index].label,
+      lastScannedAt: sources[index].lastScannedAt,
+      files: scanResult.files,
+      anomalies: scanResult.anomalies,
+    };
+    const inventoryIndex = inventories.findIndex((item) => item.path === resolved);
+    if (inventoryIndex === -1) inventories.push(inventory);
+    else inventories[inventoryIndex] = inventory;
+    this._writeExternalState(taskId, sources, inventories);
+    return sources[index];
+  }
+
+  /**
+   * Remove an external directory reference. Does NOT delete the directory.
+   * @param {string} taskId
+   * @param {string} sourcePath - Absolute path of the linked directory
+   * @returns {object} { ok, removed }
+   */
+  unlinkExternalSource(taskId, sourcePath) {
+    this._requireTask(taskId);
+    const resolved = path.resolve(sourcePath);
+    const sources = this.getExternalSources(taskId);
+    const filtered = sources.filter((s) => s.path !== resolved);
+    if (filtered.length === sources.length) throw new Error('未关联的目录');
+
+    const inventories = this._getExternalInventories(taskId).filter((item) => item.path !== resolved);
+    this._writeExternalState(taskId, filtered, inventories);
+    return { ok: true, removed: true };
+  }
+
+  /**
+   * Validate a renderer request before revealing a linked external directory.
+   * @param {string} taskId
+   * @param {string} sourcePath
+   * @returns {string}
+   */
+  resolveLinkedExternalSource(taskId, sourcePath) {
+    this._requireTask(taskId);
+    const resolved = path.resolve(sourcePath);
+    if (!this.getExternalSources(taskId).some((source) => source.path === resolved)) {
+      throw new Error('未关联的目录');
+    }
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+      throw new Error('关联目录当前不可用');
+    }
+    return resolved;
+  }
+
+  /**
+   * Recursively scan an external directory.
+   * Records anomalies per-file but does not abort the entire scan.
+   * @param {string} dirPath - Absolute path to scan
+   * @returns {object} { totalFiles, totalSizeKb, topLevelItems, anomalies, files }
+   * @private
+   */
+  _scanExternalDirectory(dirPath) {
+    const resolved = path.resolve(dirPath);
+    const topLevelItems = [];
+    const anomalies = [];
+    const files = [];
+
+    // Read top-level entries
+    let rootEntries;
+    try {
+      rootEntries = fs.readdirSync(resolved, { withFileTypes: true });
+    } catch (e) {
+      // Root directory itself is unreadable
+      return {
+        totalFiles: 0,
+        totalSizeKb: 0,
+        topLevelItems: [],
+        anomalies: [`根目录: ${e.message}`],
+        files: [],
+      };
+    }
+
+    for (const entry of rootEntries) {
+      if (entry.name.startsWith('.')) continue;
+      topLevelItems.push({ name: entry.name, isDirectory: entry.isDirectory() });
+    }
+
+    // Iterative depth-first traversal
+    let totalFiles = 0;
+    let totalSizeKb = 0;
+    const stack = [{ absolute: resolved, relative: '' }];
+
+    while (stack.length > 0) {
+      const current = stack.pop();
+
+      let entries;
+      try {
+        entries = fs.readdirSync(current.absolute, { withFileTypes: true });
+      } catch (e) {
+        anomalies.push(current.relative || '根目录');
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue;
+
+        const relativePath = current.relative
+          ? `${current.relative}/${entry.name}`
+          : entry.name;
+
+        if (entry.isDirectory()) {
+          stack.push({ absolute: path.join(current.absolute, entry.name), relative: relativePath });
+        } else if (entry.isFile()) {
+          totalFiles++;
+          try {
+            const stat = fs.statSync(path.join(current.absolute, entry.name));
+            totalSizeKb += stat.size / 1024;
+            files.push({
+              relativePath,
+              size: stat.size,
+              modifiedAt: stat.mtime.toISOString(),
+            });
+          } catch (e) {
+            anomalies.push(`${relativePath}: ${e.message}`);
+          }
+        }
+      }
+    }
+
+    totalSizeKb = Math.round(totalSizeKb * 10) / 10;
+    files.sort((a, b) => a.relativePath.localeCompare(b.relativePath, 'zh-CN'));
+    return { totalFiles, totalSizeKb, topLevelItems, anomalies, files };
+  }
+
   // ── Prompt generation ───────────────────────────────────────────
 
   /**
@@ -477,9 +727,49 @@ class WorkspaceService {
       `- 区分事实、推断和建议；每个关键结论标注来源、截止时间与可信度`,
       `- 对高风险判断进行交叉校验，不确定内容进入验证清单`,
       `- 生成或刷新四件套，并写回结构化执行回执`,
+      ...this._buildExternalSourcesPrompt(taskId),
     ].join('\n');
 
     return { id: taskId, prompt, createdAt: new Date().toISOString() };
+  }
+
+  /**
+   * Build external sources prompt lines for a task.
+   * @param {string} taskId
+   * @returns {string[]}
+   * @private
+   */
+  _buildExternalSourcesPrompt(taskId) {
+    const sources = this.getExternalSources(taskId);
+    if (sources.length === 0) return [];
+
+    const lines = [
+      '',
+      '## 外部资料目录（只读）',
+      '以下外部目录已关联到本任务。AI Agent 须递归读取全部文件，但不得修改或写入任何内容到这些目录。',
+    ];
+    for (const source of sources) {
+      lines.push(`### ${source.label}`);
+      lines.push(`- 绝对路径: ${source.path}`);
+      lines.push(`- 文件总数: ${source.totalFiles}`);
+      lines.push(`- 总大小: ${source.totalSizeKb} KB`);
+      lines.push(`- 扫描时间: ${source.lastScannedAt}`);
+      lines.push(`- 只读边界: AI Agent 不得修改或写入此目录`);
+      lines.push(`- 读取要求: 须递归读取所有文件，保留相对路径`);
+      if (source.topLevelItems.length > 0) {
+        const dirs = source.topLevelItems.filter((i) => i.isDirectory).map((i) => i.name);
+        const files = source.topLevelItems.filter((i) => !i.isDirectory).map((i) => i.name);
+        if (dirs.length) lines.push(`- 子目录: ${dirs.join('、')}`);
+        if (files.length) lines.push(`- 顶层文件: ${files.join('、')}`);
+      }
+      if (source.anomalies.length > 0) {
+        lines.push(`- 扫描异常（${source.anomalies.length} 项）:`);
+        for (const anomaly of source.anomalies) {
+          lines.push(`  - ${anomaly}`);
+        }
+      }
+    }
+    return lines;
   }
 
   // ── Static factory / detection ──────────────────────────────────

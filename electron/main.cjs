@@ -167,10 +167,8 @@ IPC_HANDLERS['task:archive'] = async (_event, taskId) => {
 
 // Files
 IPC_HANDLERS['file:select'] = async (_event, options) => {
-  const props = [];
-  if (options?.directories) props.push('openDirectory');
+  const props = [options?.directories ? 'openDirectory' : 'openFile'];
   if (options?.multi) props.push('multiSelections');
-  props.push('openFile');
 
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: [...new Set(props)],
@@ -307,6 +305,55 @@ IPC_HANDLERS['prompt:generate'] = async (_event, taskId, kind) => {
   if (!workspaceService) return asError(new Error('Workspace not initialized'));
   try {
     return asResult(workspaceService.generatePrompt(taskId, kind));
+  } catch (e) {
+    return asError(e);
+  }
+};
+
+// External sources
+IPC_HANDLERS['source:link'] = async (_event, taskId, sourcePath, label) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try {
+    return asResult(workspaceService.linkExternalSource(taskId, sourcePath, label));
+  } catch (e) {
+    return asError(e);
+  }
+};
+
+IPC_HANDLERS['source:refresh'] = async (_event, taskId, sourcePath) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try {
+    return asResult(workspaceService.refreshExternalSource(taskId, sourcePath));
+  } catch (e) {
+    return asError(e);
+  }
+};
+
+IPC_HANDLERS['source:unlink'] = async (_event, taskId, sourcePath) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try {
+    return asResult(workspaceService.unlinkExternalSource(taskId, sourcePath));
+  } catch (e) {
+    return asError(e);
+  }
+};
+
+IPC_HANDLERS['source:list'] = async (_event, taskId) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try {
+    return asResult(workspaceService.getExternalSources(taskId));
+  } catch (e) {
+    return asError(e);
+  }
+};
+
+IPC_HANDLERS['source:reveal'] = async (_event, taskId, sourcePath) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try {
+    const resolved = workspaceService.resolveLinkedExternalSource(taskId, sourcePath);
+    const error = await shell.openPath(resolved);
+    if (error) throw new Error(error);
+    return asResult({ ok: true });
   } catch (e) {
     return asError(e);
   }

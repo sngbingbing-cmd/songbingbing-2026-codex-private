@@ -1,8 +1,9 @@
-import { mockDetail, mockSnapshot } from "./mock";
-import type { AppSnapshot, TaskDetail, WorkbenchApi } from "./types";
+import { mockDetail, mockExternalSources, mockSnapshot } from "./mock";
+import type { AppSnapshot, ExternalSourceInfo, TaskDetail, WorkbenchApi } from "./types";
 
 const wait = (ms = 180) => new Promise((resolve) => setTimeout(resolve, ms));
 let snapshot: AppSnapshot = structuredClone(mockSnapshot);
+let externalSources: ExternalSourceInfo[] = structuredClone(mockExternalSources);
 
 const mockApi: WorkbenchApi = {
   async getSnapshot() { await wait(); return structuredClone(snapshot); },
@@ -29,7 +30,24 @@ const mockApi: WorkbenchApi = {
   async writeFeedback(_id, _category, _content) { await wait(); return structuredClone(mockDetail); },
   async runEvaluation(_id) { await wait(400); return structuredClone({ ...mockDetail, evaluation: { ...mockDetail.evaluation, status: "通过", score: 86, checkedAt: new Date().toLocaleString("zh-CN") } }); },
   async checkForUpdates() { await wait(500); return { status: "current" }; },
-  async installUpdate() { await wait(); }
+  async installUpdate() { await wait(); },
+  async getExternalSources(_id) { await wait(); return structuredClone(externalSources); },
+  async linkExternalSource(_id, sourcePath, label) {
+    await wait();
+    const source = { path: sourcePath, label: label || sourcePath.split("/").pop() || "external", lastScannedAt: new Date().toISOString(), totalFiles: 42, totalSizeKb: 15600, topLevelItems: [{ name: "成员一-岗位职责", isDirectory: true }, { name: "成员二-专项材料", isDirectory: true }, { name: "readme.md", isDirectory: false }], anomalies: [], scanStatus: "ok" as const };
+    externalSources = [...externalSources.filter((item) => item.path !== sourcePath), source];
+    return structuredClone(source);
+  },
+  async refreshExternalSource(_id, sourcePath) {
+    await wait(400);
+    const current = externalSources.find((item) => item.path === sourcePath);
+    const refreshed = { ...(current || { path: sourcePath, label: sourcePath.split("/").pop() || "external", totalFiles: 0, totalSizeKb: 0, topLevelItems: [], anomalies: [], scanStatus: "ok" as const }), lastScannedAt: new Date().toISOString() };
+    externalSources = externalSources.map((item) => item.path === sourcePath ? refreshed : item);
+    return structuredClone(refreshed);
+  },
+  async unlinkExternalSource(_id, sourcePath) { await wait(); externalSources = externalSources.filter((item) => item.path !== sourcePath); return { ok: true }; },
+  async revealExternalSource(_id, _sourcePath) { await wait(); },
+  async pickDirectory() { await wait(); return "/Users/demo/Desktop/19人上半年材料"; },
 };
 
 export const api: WorkbenchApi = window.workbench || mockApi;

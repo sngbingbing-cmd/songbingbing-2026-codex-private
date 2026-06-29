@@ -1,4 +1,4 @@
-import type { AppSnapshot, TaskDetail, TaskSummary } from "./types";
+import type { AppSnapshot, ExternalSourceInfo, TaskDetail, TaskSummary } from "./types";
 
 const taskRows: TaskSummary[] = [
   { id: "20260624_示例经营分析", name: "20260624_示例经营分析", path: "/Users/demo/Documents/AI原生数据分析工作台/04-分析任务/20260624_示例经营分析", stage: "analysis", stageLabel: "03 分析", archived: false, status: "active", rawCount: 127, outputCount: 8, updatedAt: "06-24", warningCount: 1 },
@@ -48,7 +48,7 @@ export const mockDetail: TaskDetail = {
 };
 
 export const mockSnapshot: AppSnapshot = {
-  version: "1.0.0",
+  version: "1.1.0",
   workspacePath: "/Users/demo/Documents/AI原生数据分析工作台",
   workspaceName: "示例工作区",
   tasks: taskRows,
@@ -66,3 +66,21 @@ export const mockSnapshot: AppSnapshot = {
   },
   update: { status: "current" }
 };
+
+export const mockExternalSources: ExternalSourceInfo[] = [
+  {
+    path: "/Users/demo/Desktop/19人上半年材料",
+    label: "19人上半年工作材料",
+    lastScannedAt: "2026-06-29T08:30:00.000Z",
+    totalFiles: 127,
+    totalSizeKb: 18240.5,
+    topLevelItems: [
+      { name: "张三-财务负责人", isDirectory: true },
+      { name: "李四-项目经理", isDirectory: true },
+      { name: "王五-专项负责人", isDirectory: true },
+      { name: "汇总说明.md", isDirectory: false },
+    ],
+    anomalies: [],
+    scanStatus: "ok",
+  },
+];

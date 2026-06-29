@@ -322,6 +322,30 @@ kbd { padding: 1px 4px; border: 0; border-radius: 3px; color: inherit; backgroun
 .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid #c7d2d7; border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.data-stage-wrapper { display: grid; gap: 10px; }
+.external-sources-section { min-width: 0; }
+.external-sources-loading { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 92px; color: var(--muted); font-size: 10px; }
+.external-sources-empty { display: grid; place-items: center; gap: 6px; padding: 32px 14px; color: var(--muted); }
+.external-sources-empty strong { font-size: 11px; color: var(--ink-2); }
+.external-sources-empty span { font-size: 9px; }
+.external-sources-list { display: grid; gap: 6px; padding: 10px 12px 14px; }
+.external-source-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: start; min-height: 62px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 5px; background: #fafcfc; }
+.external-source-info { display: grid; gap: 5px; min-width: 0; }
+.external-source-path { display: flex; align-items: center; gap: 8px; color: var(--ink); }
+.external-source-path span { overflow: hidden; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.external-source-meta { display: flex; flex-wrap: wrap; gap: 5px 12px; color: var(--muted); font-size: 9px; }
+.external-source-meta span { white-space: nowrap; }
+.external-source-dirs { overflow: hidden; color: var(--ink-2); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.external-source-scan { color: var(--muted); font-size: 8.5px; }
+.external-source-actions { display: flex; gap: 5px; padding-top: 4px; }
+.source-action-btn { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 4px; color: #5b6d78; background: white; }
+.source-action-btn:hover { border-color: #9eb2bc; background: #f7f9fa; }
+.source-action-btn.danger { color: var(--danger); }
+.source-action-btn.danger:hover { background: #fef0ef; }
+.source-action-btn:disabled { opacity: .55; cursor: not-allowed; }
+.anomaly-badge { display: inline-flex; align-items: center; gap: 3px; color: var(--danger); }
+.scan-ok { color: var(--ok); }
+
 @media (max-width: 1240px) {
   .app-body { grid-template-columns: 62px 232px minmax(0, 1fr); }
   .global-rail button { width: 48px; }
