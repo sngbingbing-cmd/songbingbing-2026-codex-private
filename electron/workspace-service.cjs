@@ -815,6 +815,18 @@ class WorkspaceService {
       .map((name) => path.join(taskRoot, name));
     const semanticPaths = ['指标口径表.md', '实体字典.md', '数据源登记表.md']
       .map((name) => path.join(this.workspacePath, '02-权威语义层', name));
+    const semanticTableContent = semanticPaths.map((fp) => {
+      try {
+        const content = fs.readFileSync(fp, 'utf8').trim();
+        const lines = content.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|--'));
+        const dataRows = lines.slice(2).filter(l => l.split('|').filter(c => c.trim()).length > 1);
+        if (dataRows.length === 0) return { file: path.basename(fp), rows: 0 };
+        return { file: path.basename(fp), rows: dataRows.length, preview: dataRows.slice(0, 3).join('\n') };
+      } catch { return { file: path.basename(fp), rows: 0 }; }
+    }).filter(s => s.rows > 0);
+    const semanticSummary = semanticTableContent.map(s =>
+      `- ${s.file}：${s.rows}条正式定义\n  ${s.preview ? `  示例：\n  ${s.preview}` : ''}`
+    ).join('\n');
     const receiptExample = JSON.stringify({
       kind,
       status: 'completed',
@@ -880,6 +892,8 @@ class WorkspaceService {
       `- 权威语义层:`,
       ...semanticPaths.map((item) => `  - ${item}`),
       `- 领域Skills目录: ${path.join(this.workspacePath, '03-领域分析Skills')}`,
+      `- 权威语义层概览（当前正式条目数）：`,
+      ...(semanticSummary ? [`${semanticSummary}`] : [`  -（暂无正式定义）`]),
       `- 既有输出（重分析、评测、HTML或Skill沉淀时读取）: ${outputsPath}`,
       `- 人工反馈与验证资料: ${validationPath}`,
       ``,

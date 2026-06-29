@@ -51,10 +51,21 @@ function buildValidationItems({ requiredDocs = [], receipt = null, checklistCont
     if (!key || duplicate) return false;
     seen.add(key);
     return true;
-  }).map((item) => ({
-    ...item,
-    status: feedbackFiles.some((name) => name.startsWith(`feedback-${item.id}-`)) ? 'resolved' : 'pending',
-  }));
+  }).map((item) => {
+    // Find matching feedback files
+    const matchingFeedback = feedbackFiles.filter((name) => {
+      const prefix = `feedback-${item.id}-`;
+      const generalPrefix = 'feedback-general-';
+      return name.startsWith(prefix) || (item.id === 'general' && name.startsWith(generalPrefix));
+    }).sort().reverse(); // newest first
+    const isResolved = matchingFeedback.length > 0;
+    const lastFeedback = matchingFeedback[0];
+    return {
+      ...item,
+      status: isResolved ? 'resolved' : 'pending',
+      resolvedAt: isResolved ? lastFeedback.replace(/^feedback-(general-\d+|\w+-\d+)-/, '').replace('.md', '').replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') : undefined,
+    };
+  });
 }
 
 module.exports = { buildValidationItems, normalizeQuestion, uncheckedItems };
