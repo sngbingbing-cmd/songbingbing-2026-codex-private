@@ -8,6 +8,7 @@ import {
 } from "@phosphor-icons/react";
 import { api } from "./api";
 import type { AppSnapshot, ExternalSourceInfo, FileEntry, GlobalView, PromptDraft, SemanticCandidate, SemanticSnapshot, StageId, TaskDetail, TaskSummary } from "./types";
+import { findIncompleteItems, isIncompleteValue, parseMarkdownTable, updateMarkdownTableCell } from "./semantic-table-utils";
 
 const STAGES: Array<{ id: StageId; number: string; title: string; subtitle: string }> = [
   { id: "overview", number: "01", title: "概览", subtitle: "任务状态" },
@@ -179,8 +180,8 @@ function OverviewStage({ task, setStage }: { task: TaskDetail; setStage: (stage:
   return <div className="overview-grid"><section className="work-section span-two"><header><div><h2>下一步队列</h2><span>按阻塞优先</span></div><b>{pCount} 项待处理 / {rCount} 项已处理</b></header>{task.validation.map((item) => <div className="action-row" key={item.id}><span className={`tag ${item.status === 'resolved' ? 'ok' : 'warning'}`}>{item.status === 'resolved' ? '已处理' : '验证'}</span><div><strong>{item.title}</strong><small>{item.description}</small></div><b>{item.status === 'resolved' ? '中' : '高'}</b>{item.status !== 'resolved' ? <button onClick={() => setStage("validation")}>去处理</button> : <span style={{color:'#888',fontSize:'9px'}}>已确认</span>}</div>)}</section>
     <section className="work-section"><header><h2>语义冲突（全局共识）</h2><b>{task.semanticConflicts}</b></header><div className="metric-line"><span>口径映射不一致</span><em>高</em></div><div className="metric-line"><span>指标命名冲突</span><em>中</em></div></section>
     <section className="work-section span-two"><header><h2>输入就绪度</h2><span>最近 2026-06-24 10:12</span></header>{["结构化数据", "补充口径", "业务确认", "行动进度"].map((item, index) => <div className="readiness-row" key={item}><CheckCircle size={15} color={index < 2 ? "#4f9d76" : "#c08a30"} /><strong>{item}</strong><span>{index < 2 ? "已就绪" : "部分缺失"}</span><button onClick={() => setStage(index < 2 ? "data" : "validation")}>{index < 2 ? "查看" : "去补齐"}</button></div>)}</section>
-    <section className="work-section score-section"><header><h2>AI评测（抽查得分）</h2></header><strong className="score">{task.evaluation.score}<small>/100</small></strong><p>事实性 82　准确性 76<br />一致性 72　可执行性 82</p><button onClick={() => setStage("evaluation")}>查看详细评测</button></section>
-    <section className="work-section span-two"><header><h2>最近一次AI执行回执</h2><span className="tag ok">成功</span></header><p>执行阶段：验证与回流（第二次执行）　耗时：3分12秒　模型：外部主责Agent</p></section>
+    <section className="work-section score-section"><header><h2>AI评测（抽查得分）</h2></header><strong className="score">{task.evaluation.score ?? "-"}<small>/100</small></strong><p>{task.evaluation.status || "未评测"}<br />{task.evaluation.checkedAt ? `最近评测：${task.evaluation.checkedAt}` : "点击运行后台抽查"}</p><button onClick={() => setStage("evaluation")}>查看详细评测</button></section>
+    <section className="work-section span-two"><header><h2>最近一次AI执行回执</h2><span className={`tag ${task.firstRun.status === "已完成" ? "ok" : task.firstRun.status === "等待回执" ? "warning" : "muted"}`}>{task.firstRun.status}</span></header><p>{task.firstRun.receipt || "暂无回执摘要"}</p></section>
     <section className="work-section"><header><h2>来源覆盖度</h2></header><Progress label="结构化来源覆盖" value={task.sourceCoverage} /><Progress label="语义口径覆盖" value={task.semanticCoverage} /></section></div>;
 }
 
@@ -324,34 +325,21 @@ function SemanticProposalEditor({ item, onChange, notify, selected, onToggle }: 
 }
 
 function IncompleteBar({ content, docName, onRefresh, notify }: { content: string; docName: string; onRefresh: () => Promise<void>; notify: (m: string) => void }) {
-  const lines = content.split('\n');
-  const headerLine = lines.slice(2,3)[0];
-  if (!headerLine) return null;
-  const colNames = headerLine.split('|').filter((c: string) => c.trim()).map((c: string) => c.trim());
-  const dataLines = lines.slice(4).filter((l: string) => l.trim().startsWith('|') && !/^\\|\[\\s:|-]\+\\|\$/.test(l.trim()));
-  const items = dataLines.map((l: string, idx: number) => {
-    const cells = l.split('|').filter((c: string) => c.trim());
-    const row: Record<string,string> = {};
-    colNames.forEach((c, i) => { if (cells[i+1]) row[c] = cells[i+1].trim(); });
-    return { lineIdx: idx + 4, row };
-  }).filter((o: any) => Object.keys(o.row).length > 0);
-  const incomplete = items.filter((item: any) => colNames.some((c: string) => { const v = item.row[c] || ''; return !v.trim() || /待确认|待补充|未知|todo/i.test(v); }));
+  const { colNames, items, dataRows } = parseMarkdownTable(content);
+  if (colNames.length === 0) return null;
+  const incomplete = findIncompleteItems({ colNames, items, dataRows });
   if (incomplete.length === 0) return <div className="incomplete-bar empty">所有字段已完善 <span>✓</span></div>;
   const [editing, setEditing] = useState<{lineIdx:number;field:string}|null>(null);
   const [val, setVal] = useState('');
   const doSave = async (lineIdx: number, field: string, value: string) => {
-    const newLines = [...lines];
-    const cells = newLines[lineIdx].split('|');
-    const colIdx = colNames.indexOf(field) + 1;
-    if (colIdx <= 0) return;
-    cells[colIdx] = ' ' + value + ' ';
-    newLines[lineIdx] = cells.join('|');
-    await api.saveFile(`/02-权威语义层/${docName}.md`, newLines.join('\n'));
+    const updated = updateMarkdownTableCell(content, lineIdx, field, value);
+    await api.saveFile(`02-权威语义层/${docName}.md`, updated);
     await onRefresh();
     setEditing(null);
     notify(`${field}已更新`);
   };
-  return <div className="incomplete-bar"><div className="incomplete-bar-header"><strong>待完善条目（{incomplete.length}条）</strong><span>点击空字段直接编辑，回车保存</span></div>{incomplete.map((item: any) => <div className="incomplete-item" key={item.lineIdx}><div className="incomplete-item-name">{item.row[colNames[0]] || item.row['指标'] || item.row['标准名称'] || '未命名'}</div><div className="incomplete-item-fields">{colNames.filter((c: string) => {const v = item.row[c] || ''; return !v.trim() || /待确认|待补充|未知|todo/i.test(v);}).map((field: string) => <div className="incomplete-field" key={field}><span className="incomplete-field-label">{field}</span>{editing?.lineIdx === item.lineIdx && editing?.field === field ? <div className="incomplete-field-edit"><input autoFocus value={val} onChange={(e: any) => setVal(e.target.value)} onKeyDown={(e: any) => {if (e.key === 'Escape') setEditing(null); if (e.key === 'Enter') {doSave(item.lineIdx, field, val);}}}/><button className="incomplete-field-save" onClick={() => {doSave(item.lineIdx, field, val);}}>✓</button></div> : <span className="incomplete-field-value" onClick={() => {setEditing({lineIdx:item.lineIdx, field});setVal(item.row[field] || '');}}>{item.row[field] ? item.row[field].slice(0,40)+'…' : '点击填写'}</span>}</div>)}</div></div>)}</div>;
+  const displayName = (row: Record<string,string>) => row[colNames[0]] || row['指标'] || row['标准名称'] || '未命名';
+  return <div className="incomplete-bar"><div className="incomplete-bar-header"><strong>待完善条目（{incomplete.length}条）</strong><span>点击空字段直接编辑，回车保存</span></div>{incomplete.map((item) => <div className="incomplete-item" key={item.lineIdx}><div className="incomplete-item-name">{displayName(item.row)}</div><div className="incomplete-item-fields">{colNames.filter((c) => isIncompleteValue(item.row[c] || '')).map((field) => <div className="incomplete-field" key={field}><span className="incomplete-field-label">{field}</span>{editing?.lineIdx === item.lineIdx && editing?.field === field ? <div className="incomplete-field-edit"><input autoFocus value={val} onChange={(e: any) => setVal(e.target.value)} onKeyDown={(e: any) => {if (e.key === 'Escape') setEditing(null); if (e.key === 'Enter') {doSave(item.lineIdx, field, val);}}}/><button className="incomplete-field-save" onClick={() => {doSave(item.lineIdx, field, val);}}>✓</button></div> : <span className="incomplete-field-value" onClick={() => {setEditing({lineIdx:item.lineIdx, field});setVal(item.row[field] || '');}}>{item.row[field] ? item.row[field].slice(0,40)+'…' : '点击填写'}</span>}</div>)}</div></div>)}</div>;
 }
 
 function FormalView({ snapshot, selectedId, setSelectedId, onRefresh, notify }: { snapshot: AppSnapshot; selectedId: string; setSelectedId: (id: string) => void; onRefresh: () => Promise<void>; notify: (m: string) => void }) {

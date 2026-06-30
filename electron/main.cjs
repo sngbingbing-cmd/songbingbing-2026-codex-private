@@ -7,20 +7,16 @@ const {
 } = require('electron');
 const path = require('path');
 const log = require('electron-log');
-const { autoUpdater } = require('electron-updater');
 const { WorkspaceService } = require('./workspace-service.cjs');
 const { version } = require('../package.json');
 
 // ── Logging ──────────────────────────────────────────────────────
-autoUpdater.logger = log;
-autoUpdater.logger.transports.file.level = 'info';
-autoUpdater.autoDownload = false;
-autoUpdater.autoInstallOnAppQuit = true;
 log.info('App starting...');
 
 // ── State ─────────────────────────────────────────────────────────
 let mainWindow = null;
 let workspaceService = null;
+let autoUpdater = null;
 const IS_DEV = !app.isPackaged;
 const WS_NAMESPACE = 'ws';
 const WS_READY_EVENT = `${WS_NAMESPACE}:ready`;
@@ -435,7 +431,7 @@ IPC_HANDLERS['update:check'] = async () => {
 };
 
 IPC_HANDLERS['update:download'] = async () => {
-  if (IS_DEV) return asResult({ downloaded: false });
+  if (IS_DEV || !autoUpdater) return asResult({ downloaded: false });
   try {
     await autoUpdater.downloadUpdate();
     return asResult({ downloaded: true });
@@ -445,7 +441,7 @@ IPC_HANDLERS['update:download'] = async () => {
 };
 
 IPC_HANDLERS['update:install'] = async () => {
-  if (IS_DEV) return asResult({ installed: false });
+  if (IS_DEV || !autoUpdater) return asResult({ installed: false });
   autoUpdater.quitAndInstall();
   return asResult({ installed: true });
 };
@@ -470,6 +466,15 @@ function setupAutoUpdater() {
     log.info('Skipping auto-updater in dev mode');
     return;
   }
+
+  // Lazy-load electron-updater after app is ready to avoid accessing
+  // app.getVersion() before the Electron app object is initialized.
+  const { autoUpdater: updater } = require('electron-updater');
+  autoUpdater = updater;
+  autoUpdater.logger = log;
+  autoUpdater.logger.transports.file.level = 'info';
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('update-available', (info) => {
     log.info(`Update available: ${info.version}`);
