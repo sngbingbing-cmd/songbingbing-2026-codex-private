@@ -34,6 +34,15 @@ export interface ChecklistItem {
   source?: string;
 }
 
+export interface EvaluationCheck {
+  id: string;
+  title: string;
+  status: "pass" | "warn" | "fail";
+  detail?: string;
+  score?: number;
+  max?: number;
+}
+
 export interface TaskDetail extends TaskSummary {
   inboxFiles: FileEntry[];
   rawFiles: FileEntry[];
@@ -46,7 +55,7 @@ export interface TaskDetail extends TaskSummary {
   inputCompleteness: "高" | "中" | "低";
   firstRun: { status: string; time?: string; receipt?: string };
   reanalysis: { status: string; time?: string; receipt?: string };
-  evaluation: { status: string; score?: number; checkedAt?: string; checks?: ChecklistItem[] };
+  evaluation: { status: string; score?: number; checkedAt?: string; checks?: EvaluationCheck[] };
   semanticConflicts: number;
   domainSkill: string;
   prompt?: string;

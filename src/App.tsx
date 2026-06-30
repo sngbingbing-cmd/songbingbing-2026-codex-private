@@ -115,10 +115,10 @@ function ContextPane({ task, onPick }: { task: TaskDetail; onPick: () => void })
   return <section className="context-pane pane">
     <h2>输入与上下文</h2>
     <div className="segmented"><button className={tab === "files" ? "active" : ""} onClick={() => setTab("files")}>文件</button><button className={tab === "semantic" ? "active" : ""} onClick={() => setTab("semantic")}>语义</button><button className={tab === "skill" ? "active" : ""} onClick={() => setTab("skill")}>Skill</button></div>
-    {tab === "files" ? <>
+      {tab === "files" ? <>
       <div className="pane-section-title"><strong>原始文件 ({task.rawFiles.length})</strong><AppButton tone="ghost" icon={<Plus size={14} />} onClick={onPick}>添加</AppButton></div>
       <div className="file-list">{task.rawFiles.map((file, index) => <button key={file.path} className={`file-row ${index === 0 ? "selected" : ""}`}><IconForFile file={file} /><span><strong>{file.name}</strong><small>{file.sizeKb} KB · {file.modifiedAt}</small></span><em>{file.trust || "-"}</em></button>)}</div>
-      <div className="context-summary"><header><strong>源可信度</strong><span><ShieldCheck size={14} /> 高可信</span></header><p>{task.rawFiles.length} 个文件来自本地上传，未检测到冲突或完整性异常。</p></div>
+      {(() => { const summary = trustSummary(task.rawFiles); return <div className="context-summary"><header><strong>源可信度</strong><span><ShieldCheck size={14} color={summary.color} /> {summary.label}</span></header><p>{task.rawFiles.length} 个原始文件，按最低可信度 {summary.label} 计入上下文。</p></div>; })()}
       <div className="context-summary"><header><strong>语义定义</strong><AppButton tone="ghost">管理</AppButton></header><p>已加载当前工作区的指标口径、实体字典和数据源登记。</p></div>
       <div className="context-summary"><header><strong>领域（Skill）</strong><AppButton tone="ghost">切换</AppButton></header><p><b>{task.domainSkill}</b><br />已加载领域规则、分析模板与校验逻辑。</p></div>
       <button className="dropzone" onClick={onPick}><UploadSimple size={25} /><strong>拖拽文件到此处，或点击添加</strong><span>支持 .md .xlsx .csv .txt</span></button>
@@ -186,6 +186,29 @@ function OverviewStage({ task, setStage }: { task: TaskDetail; setStage: (stage:
 }
 
 function Progress({ label, value }: { label: string; value: number }) { return <div className="progress-row"><span>{label}</span><i><b style={{ width: `${value}%` }} /></i><strong>{value}%</strong></div>; }
+
+function evaluationStatusColor(status: string | undefined) {
+  if (status === "pass") return "#4c9d78";
+  if (status === "warn") return "#c08a30";
+  if (status === "fail") return "#c44";
+  return "#7b8b94";
+}
+function evaluationStatusLabel(status: string | undefined) {
+  if (status === "pass") return "通过";
+  if (status === "warn") return "警告";
+  if (status === "fail") return "不通过";
+  return "未检查";
+}
+
+function trustSummary(rawFiles: FileEntry[]) {
+  if (rawFiles.length === 0) return { label: "无文件", color: "#7b8b94" };
+  const trusts = rawFiles.map((f) => f.trust || "C");
+  const minTrust = trusts.reduce((min, t) => (t < min ? t : min), "A" as string);
+  if (minTrust === "A") return { label: "高可信（A级）", color: "#4f9d76" };
+  if (minTrust === "B") return { label: "可信（B级）", color: "#c08a30" };
+  return { label: "需谨慎（C级）", color: "#c44" };
+}
+
 
 function ExternalSourcesModule({ taskId, notify }: { taskId: string; notify: (m: string) => void }) {
   const [sources, setSources] = useState<ExternalSourceInfo[]>([]);
@@ -310,9 +333,11 @@ function DeliveryStage({ task, refresh, notify }: { task: TaskDetail; refresh: (
 }
 
 function EvaluationStage({ task, refresh, notify }: { task: TaskDetail; refresh: (task: TaskDetail) => void; notify: (m: string) => void }) {
-  const [running, setRunning] = useState(false); const run = async () => { setRunning(true); refresh(await api.runEvaluation(task.id)); setRunning(false); notify("后台抽查已完成"); };
+  const [running, setRunning] = useState(false);
+  const checks = task.evaluation.checks || [];
+  const run = async () => { setRunning(true); refresh(await api.runEvaluation(task.id)); setRunning(false); notify("后台抽查已完成"); };
   const copy = async () => { const prompt = await api.generatePrompt(task.id, "evaluation"); await navigator.clipboard.writeText(prompt); notify("AI评测调度单已复制"); };
-  return <div className="evaluation-layout"><section className="work-section span-two"><header><div><h2>后台数据抽查</h2><span>检查文件、来源登记和输出追溯痕迹</span></div><AppButton tone="primary" icon={running ? <Spinner /> : <ShieldCheck size={16} />} onClick={run} disabled={running}>{running ? "抽查中" : "运行后台抽查"}</AppButton></header>{["正式输入", "文件抽样", "来源登记", "正式输出", "输出追溯痕迹"].map((item) => <div className="check-row" key={item}><CheckCircle size={17} color="#4c9d78" /><strong>{item}</strong><span>通过</span></div>)}</section><section className="work-section score-section"><header><h2>AI评测</h2></header><strong className="score">{task.evaluation.score || "-"}<small>/100</small></strong><p>{task.evaluation.status}<br />{task.evaluation.checkedAt}</p><AppButton onClick={copy}>生成AI评测调度单</AppButton></section><section className="work-section span-three"><header><div><h2>评测边界</h2><span>两层检查分工明确</span></div></header><div className="boundary-grid"><div><HardDrives size={24} /><strong>后台抽查</strong><p>判断文件能否读取、来源是否登记、输出是否留下追溯痕迹。</p></div><div><Robot size={24} /><strong>AI评测</strong><p>抽查数字、口径、推理、反证和结论边界。</p></div><div><WarningCircle size={24} /><strong>人工确认</strong><p>文件可读不等于业务结论正确，最终规则仍需人确认。</p></div></div></section></div>;
+  return <div className="evaluation-layout"><section className="work-section span-two"><header><div><h2>后台数据抽查</h2><span>检查文件、来源登记和输出追溯痕迹</span></div><AppButton tone="primary" icon={running ? <Spinner /> : <ShieldCheck size={16} />} onClick={run} disabled={running}>{running ? "抽查中" : "运行后台抽查"}</AppButton></header>{checks.length === 0 ? <div className="check-row muted"><WarningCircle size={17} color="#7b8b94" /><strong>尚未运行后台抽查</strong><span>点击运行后生成检查项</span></div> : checks.map((check) => <div className="check-row" key={check.id}><CheckCircle size={17} color={evaluationStatusColor(check.status)} /><strong>{check.title}</strong><span>{evaluationStatusLabel(check.status)} {typeof check.score === "number" && typeof check.max === "number" ? `(${check.score}/${check.max})` : ""}</span>{check.detail ? <small>{check.detail}</small> : null}</div>)}</section><section className="work-section score-section"><header><h2>AI评测</h2></header><strong className="score">{task.evaluation.score ?? "-"}<small>/100</small></strong><p>{task.evaluation.status}<br />{task.evaluation.checkedAt}</p><AppButton onClick={copy}>生成AI评测调度单</AppButton></section><section className="work-section span-three"><header><div><h2>评测边界</h2><span>两层检查分工明确</span></div></header><div className="boundary-grid"><div><HardDrives size={24} /><strong>后台抽查</strong><p>判断文件能否读取、来源是否登记、输出是否留下追溯痕迹。</p></div><div><Robot size={24} /><strong>AI评测</strong><p>抽查数字、口径、推理、反证和结论边界。</p></div><div><WarningCircle size={24} /><strong>人工确认</strong><p>文件可读不等于业务结论正确，最终规则仍需人确认。</p></div></div></section></div>;
 }
 
 function SemanticProposalEditor({ item, onChange, notify, selected, onToggle }: { item: SemanticCandidate; onChange: (semantic: SemanticSnapshot) => void; notify: (m: string) => void; selected: boolean; onToggle: (id: string) => void }) {
@@ -345,18 +370,19 @@ function IncompleteBar({ content, docName, onRefresh, notify }: { content: strin
 function FormalView({ snapshot, selectedId, setSelectedId, onRefresh, notify }: { snapshot: AppSnapshot; selectedId: string; setSelectedId: (id: string) => void; onRefresh: () => Promise<void>; notify: (m: string) => void }) {
   const selectedDoc = snapshot.semantic.docs.find((d: any) => d.id === selectedId);
   const [query, setQuery] = useState("");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   if (!selectedDoc) return <section className="semantic-layout"><div><h2>正式语义文件</h2>{snapshot.semantic.docs.map((doc: any) => <button className={`semantic-doc-row ${doc.id === selectedId ? "selected" : ""}`} key={doc.id} onClick={() => setSelectedId(doc.id)}><BookOpenText size={20} /><span><strong>{doc.title}</strong><small>{doc.count}条正式定义</small></span><CaretRight size={15} /></button>)}</div><div className="semantic-preview-empty">选择左侧文件查看语义条目</div></section>;
   const content = selectedDoc.content || '';
-  const lines = content.split('\n');
-  const headerLine = lines.slice(2,3)[0];
-  if (!headerLine) return <pre>{content}</pre>;
-  const colNames = headerLine.split('|').filter((c: string) => c.trim()).map((c: string) => c.trim());
-  const firstCol = colNames[0];
-  const dataLines = lines.slice(4).filter((l: string) => l.trim().startsWith('|') && !/^\|[\s:|-]+\|$/.test(l.trim()));
-  const allItems = dataLines.map((l: string) => { const cells = l.split('|').filter((c: string) => c.trim()); const obj: Record<string,string> = {}; colNames.forEach((c: string, i: number) => { if (cells[i+1]) obj[c] = cells[i+1].trim(); }); return obj; }).filter((o: Record<string,string>) => Object.keys(o).length > 0);
+  const parsed = parseMarkdownTable(content);
+  if (parsed.colNames.length === 0) return <pre>{content}</pre>;
+  const firstCol = parsed.colNames[0];
+  const allItems = parsed.items;
 
-  const filtered = query.trim() ? allItems.filter((item: Record<string,string>) => (item[firstCol] || '').toLowerCase().includes(query.toLowerCase()) || Object.values(item).some((v: string) => v.toLowerCase().includes(query.toLowerCase()))) : allItems;
+  const filtered = query.trim() ? allItems.filter((item) => {
+    const row = item.row;
+    return (row[firstCol] || '').toLowerCase().includes(query.toLowerCase()) ||
+      parsed.colNames.some((c) => (row[c] || '').toLowerCase().includes(query.toLowerCase()));
+  }) : allItems;
   const [page, setPage] = useState(0);
   const pageSize = 20;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -365,37 +391,39 @@ function FormalView({ snapshot, selectedId, setSelectedId, onRefresh, notify }: 
 
   // Determine wide columns (long text)
   const wideCols = new Set<string>();
-  allItems.forEach(item => { Object.entries(item).forEach(([k, v]) => { if ((v||'').length > 60) wideCols.add(k); }); });
+  allItems.forEach((item) => { parsed.colNames.forEach((c) => { const v = item.row[c] || ''; if (v.length > 60) wideCols.add(c); }); });
 
   return <section className="semantic-layout"><div><h2>正式语义文件</h2>{snapshot.semantic.docs.map((doc: any) => <button className={`semantic-doc-row ${doc.id === selectedId ? "selected" : ""}`} key={doc.id} onClick={() => setSelectedId(doc.id)}><BookOpenText size={20} /><span><strong>{doc.title}</strong><small>{doc.count}条正式定义</small></span><CaretRight size={15} /></button>)}</div>
     <div className="formal-view-right">
       <h2>{selectedDoc.title}<span className="fvr-count">{filtered.length}/{allItems.length} 条</span></h2>
 
       {/* Search bar */}
-      <div className="fvr-search"><MagnifyingGlass size={14} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`搜索 ${colNames.slice(0,3).join(' / ')}…`} /><span className="fvr-search-hint">{filtered.length !== allItems.length ? `筛选 ${filtered.length} 条` : `${allItems.length} 条`}</span></div>
+      <div className="fvr-search"><MagnifyingGlass size={14} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`搜索 ${parsed.colNames.slice(0,3).join(' / ')}…`} /><span className="fvr-search-hint">{filtered.length !== allItems.length ? `筛选 ${filtered.length} 条` : `${allItems.length} 条`}</span></div>
 
       {/* Incomplete bar */}
       <IncompleteBar content={content} docName={selectedDoc.title.replace(/\.md$/,'')} onRefresh={onRefresh} notify={notify} />
 
       {/* Data table */}
       <div className="fvr-table-wrap">
-        <table className="fvr-table"><thead><tr><th className="fvr-th-name">{firstCol}</th>{colNames.filter(c => c !== firstCol).slice(0, 2).map(c => <th key={c} className={wideCols.has(c) ? "fvr-th-wide" : ""}>{c}</th>)}<th className="fvr-th-action">操作</th></tr></thead>
-        <tbody>{paged.length === 0 ? <tr><td colSpan={4} className="fvr-empty">无匹配结果</td></tr> : paged.map((item: Record<string,string>, idx: number) => {
-          const rowKey = item[firstCol] || `r-${idx}`;
+        <table className="fvr-table"><thead><tr><th className="fvr-th-name">{firstCol}</th>{parsed.colNames.filter(c => c !== firstCol).slice(0, 2).map(c => <th key={c} className={wideCols.has(c) ? "fvr-th-wide" : ""}>{c}</th>)}<th className="fvr-th-action">操作</th></tr></thead>
+        <tbody>{paged.length === 0 ? <tr><td colSpan={4} className="fvr-empty">无匹配结果</td></tr> : paged.map((item, idx) => {
+          const row = item.row;
+          const rowKey = item.lineIdx;
           const isExp = expandedId === rowKey;
-          const hasEmpty = colNames.some(c => { const v = item[c] || ''; return !v.trim() || /待确认|待补充|未知|todo/i.test(v); });
-          return <tr key={idx} className={hasEmpty ? "has-empty" : ""}>
-            <td className="fvr-td-name"><span className="fvr-exp-icon" onClick={() => setExpandedId(isExp ? null : rowKey)}>{isExp ? <CaretDown size={12} /> : <CaretRight size={12} />}</span><strong title={item[firstCol]} onClick={() => setExpandedId(isExp ? null : rowKey)}>{item[firstCol] || `条目${idx+1}`}</strong></td>
-            {colNames.filter(c => c !== firstCol).slice(0, 2).map(c => <td key={c} className={wideCols.has(c) ? "fvr-td-wide" : ""} title={item[c]}>{wideCols.has(c) && !isExp ? ((item[c] || '').slice(0, 50) + (((item[c]||'').length > 50) ? '…' : '')) : (item[c] || '-')}</td>)}
+          const hasEmpty = parsed.colNames.some(c => { const v = row[c] || ''; return !v.trim() || /待确认|待补充|未知|todo/i.test(v); });
+          return <tr key={rowKey} className={hasEmpty ? "has-empty" : ""}>
+            <td className="fvr-td-name"><span className="fvr-exp-icon" onClick={() => setExpandedId(isExp ? null : rowKey)}>{isExp ? <CaretDown size={12} /> : <CaretRight size={12} />}</span><strong title={row[firstCol]} onClick={() => setExpandedId(isExp ? null : rowKey)}>{row[firstCol] || `条目${idx+1}`}</strong></td>
+            {parsed.colNames.filter(c => c !== firstCol).slice(0, 2).map(c => <td key={c} className={wideCols.has(c) ? "fvr-td-wide" : ""} title={row[c]}>{wideCols.has(c) && !isExp ? ((row[c] || '').slice(0, 50) + (((row[c]||'').length > 50) ? '…' : '')) : (row[c] || '-')}</td>)}
             <td className="fvr-td-action"><button className="fvr-btn-detail" onClick={() => setExpandedId(isExp ? null : rowKey)}>{isExp ? '收起' : '详情'}</button></td>
           </tr>;
         })}</tbody></table>
 
         {/* Expanded detail card */}
         {expandedId ? (() => {
-          const item = paged.find((it: Record<string, string>) => (it[firstCol] || `r-${paged.indexOf(it)}`) === expandedId);
+          const item = paged.find((it) => it.lineIdx === expandedId);
           if (!item) return null;
-          return <div className="fvr-detail-card"><header><strong>{item[firstCol]}</strong><button onClick={() => setExpandedId(null)}>✕</button></header><dl>{colNames.filter(c => c !== firstCol).map(c => <div key={c} className={`fvr-dl-row ${!item[c]?.trim() ? 'empty' : ''}`}><dt>{c}</dt><dd dangerouslySetInnerHTML={{ __html: (item[c] || '<em>待完善</em>').replace(/\n/g, '<br/>') }} /></div>)}</dl></div>;
+          const row = item.row;
+          return <div className="fvr-detail-card"><header><strong>{row[firstCol]}</strong><button onClick={() => setExpandedId(null)}>✕</button></header><dl>{parsed.colNames.filter(c => c !== firstCol).map(c => <div key={c} className={`fvr-dl-row ${!row[c]?.trim() ? 'empty' : ''}`}><dt>{c}</dt><dd dangerouslySetInnerHTML={{ __html: (row[c] || '<em>待完善</em>').replace(/\n/g, '<br/>') }} /></div>)}</dl></div>;
         })() : null}
       </div>
 
@@ -432,7 +460,13 @@ function SettingsView({ snapshot, onSelectWorkspace, onUpdate, onDownload, onIns
   return <main className="global-content settings"><header className="global-content-head"><div><h1>设置</h1><p>本机工作区、版本升级和应用信息。</p></div></header><section className="settings-section"><h2>工作区</h2><div className="setting-row"><div><strong>当前工作区</strong><p>{snapshot.workspacePath}</p></div><AppButton onClick={onSelectWorkspace}>选择目录</AppButton></div></section><section className="settings-section"><h2>软件更新</h2><div className="setting-row"><div><strong>当前版本 v{snapshot.version}</strong><p>{updateMessage}</p></div><div className="inline-actions">{update.status === "available" ? <AppButton tone="primary" icon={<UploadSimple size={16} />} onClick={onDownload}>下载更新</AppButton> : null}{update.status === "downloaded" ? <AppButton tone="primary" icon={<ArrowClockwise size={16} />} onClick={onInstall}>重启并安装</AppButton> : null}<AppButton disabled={["checking", "downloading", "installing"].includes(update.status)} icon={update.status === "checking" ? <Spinner /> : <ArrowClockwise size={16} />} onClick={onUpdate}>检查更新</AppButton></div></div><div className="update-steps"><span className={["available", "downloading", "downloaded", "installing"].includes(update.status) ? "done" : ""}>1 发现版本</span><span className={["downloaded", "installing"].includes(update.status) ? "done" : update.status === "downloading" ? "active" : ""}>2 下载</span><span className={update.status === "installing" ? "active" : ""}>3 重启安装</span></div></section><section className="settings-section"><h2>关于</h2><p>AI原生数据分析工作台 · 作者 宋冰冰 & Codex</p><p>本地优先。业务数据不会随应用源代码公开。</p></section></main>;
 }
 
-function StatusBar({ task }: { task: TaskDetail }) { return <footer className="statusbar"><span><ShieldCheck size={15} />工作区健康 <b>健康</b></span><span>文件总数 <b>{task.rawCount}</b></span><span>资料完整度 <b>{task.inputCompleteness}</b></span><span>语义覆盖率 <b>{task.semanticCoverage}%</b></span><span>后台检查 <b>空闲中</b></span></footer>; }
+function StatusBar({ task }: { task: TaskDetail }) {
+  const evaluationScore = task.evaluation.score;
+  const health = evaluationScore == null ? "未评测" : evaluationScore >= 80 ? "健康" : evaluationScore >= 60 ? "亚健康" : "需关注";
+  const healthColor = evaluationScore == null ? "#7b8b94" : evaluationScore >= 80 ? "#4f9d76" : evaluationScore >= 60 ? "#c08a30" : "#c44";
+  const backendStatus = task.status === "active" ? "运行中" : task.status === "warning" ? "异常" : "空闲中";
+  return <footer className="statusbar"><span><ShieldCheck size={15} color={healthColor} />工作区健康 <b>{health}</b></span><span>文件总数 <b>{task.rawCount}</b></span><span>资料完整度 <b>{task.inputCompleteness}</b></span><span>语义覆盖率 <b>{task.semanticCoverage}%</b></span><span>后台检查 <b>{backendStatus}</b></span></footer>;
+}
 
 function NewTaskModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string) => Promise<void> }) {
   const [name, setName] = useState(""); const [busy, setBusy] = useState(false);
