@@ -299,6 +299,37 @@ IPC_HANDLERS['semantic:reject-candidate'] = async (_event, id, reason) => {
   try { return asResult(workspaceService.rejectSemanticCandidate(id, reason)); } catch (e) { return asError(e); }
 };
 
+// Domain Skills
+IPC_HANDLERS['skill:list'] = async () => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try { return asResult(workspaceService.listSkills()); } catch (e) { return asError(e); }
+};
+
+IPC_HANDLERS['skill:get'] = async (_event, skillId) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try { return asResult(workspaceService.getSkill(skillId)); } catch (e) { return asError(e); }
+};
+
+IPC_HANDLERS['skill:save'] = async (_event, skill) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try { return asResult(workspaceService.saveSkill(skill)); } catch (e) { return asError(e); }
+};
+
+IPC_HANDLERS['skill:delete'] = async (_event, skillId) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try { workspaceService.deleteSkill(skillId); return asResult({ ok: true }); } catch (e) { return asError(e); }
+};
+
+IPC_HANDLERS['skill:set-task'] = async (_event, taskId, skillId) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try { return asResult(workspaceService.setTaskSkill(taskId, skillId)); } catch (e) { return asError(e); }
+};
+
+IPC_HANDLERS['skill:get-task'] = async (_event, taskId) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try { return asResult(workspaceService._readTaskSkill(taskId)); } catch (e) { return asError(e); }
+};
+
 // Dispatch & Receipt
 IPC_HANDLERS['dispatch:write'] = async (_event, taskId, dispatchData) => {
   if (!workspaceService) return asError(new Error('Workspace not initialized'));

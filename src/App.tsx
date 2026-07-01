@@ -7,7 +7,7 @@ import {
   WarningCircle, X
 } from "@phosphor-icons/react";
 import { api } from "./api";
-import type { AppSnapshot, ExternalSourceInfo, FileEntry, GlobalView, PromptDraft, SemanticCandidate, SemanticSnapshot, StageId, TaskDetail, TaskSummary } from "./types";
+import type { AppSnapshot, DomainSkill, ExternalSourceInfo, FileEntry, GlobalView, PromptDraft, SemanticCandidate, SemanticSnapshot, StageId, TaskDetail, TaskSummary } from "./types";
 import { findIncompleteItems, isIncompleteValue, parseMarkdownTable, updateMarkdownTableCell } from "./semantic-table-utils";
 
 const STAGES: Array<{ id: StageId; number: string; title: string; subtitle: string }> = [
@@ -110,8 +110,10 @@ function StageNav({ active, task, onStage }: { active: StageId; task: TaskDetail
   </nav><div className="stage-signals"><button onClick={() => onStage("validation")}><WarningCircle size={15} />语义冲突 <b>{task.semanticConflicts}</b></button><button onClick={() => onStage("evaluation")}><ShieldCheck size={15} />AI评测 <strong>{task.evaluation.score || "-"}</strong><small>/100</small></button></div></div>;
 }
 
-function ContextPane({ task, onPick }: { task: TaskDetail; onPick: () => void }) {
+function ContextPane({ task, onPick, skills, onSetSkill }: { task: TaskDetail; onPick: () => void; skills: DomainSkill[]; onSetSkill: (skillId: string | null) => Promise<void> }) {
   const [tab, setTab] = useState<"files" | "semantic" | "skill">("files");
+  const [pickingSkill, setPickingSkill] = useState(false);
+  const activeSkill = skills.find((s) => s.id === task.skillId);
   return <section className="context-pane pane">
     <h2>输入与上下文</h2>
     <div className="segmented"><button className={tab === "files" ? "active" : ""} onClick={() => setTab("files")}>文件</button><button className={tab === "semantic" ? "active" : ""} onClick={() => setTab("semantic")}>语义</button><button className={tab === "skill" ? "active" : ""} onClick={() => setTab("skill")}>Skill</button></div>
@@ -120,22 +122,37 @@ function ContextPane({ task, onPick }: { task: TaskDetail; onPick: () => void })
       <div className="file-list">{task.rawFiles.map((file, index) => <button key={file.path} className={`file-row ${index === 0 ? "selected" : ""}`}><IconForFile file={file} /><span><strong>{file.name}</strong><small>{file.sizeKb} KB · {file.modifiedAt}</small></span><em>{file.trust || "-"}</em></button>)}</div>
       {(() => { const summary = trustSummary(task.rawFiles); return <div className="context-summary"><header><strong>源可信度</strong><span><ShieldCheck size={14} color={summary.color} /> {summary.label}</span></header><p>{task.rawFiles.length} 个原始文件，按最低可信度 {summary.label} 计入上下文。</p></div>; })()}
       <div className="context-summary"><header><strong>语义定义</strong><AppButton tone="ghost">管理</AppButton></header><p>已加载当前工作区的指标口径、实体字典和数据源登记。</p></div>
-      <div className="context-summary"><header><strong>领域（Skill）</strong><AppButton tone="ghost">切换</AppButton></header><p><b>{task.domainSkill}</b><br />已加载领域规则、分析模板与校验逻辑。</p></div>
+      <div className="context-summary"><header><strong>领域（Skill）</strong>{activeSkill ? <AppButton tone="ghost" onClick={() => onSetSkill(null)}>移除</AppButton> : null}</header><div className="skill-mini-info">{activeSkill ? <><Robot size={16} color="#4f9d76" /><p><b>{activeSkill.name}</b><br /><small>{activeSkill.domain} · v{activeSkill.version}</small><br /><small>{activeSkill.description}</small></p></> : <p><b>未选择 Skill</b><br /><small>选择领域Skill后，分析调度单将包含该Skill的分析框架和规则。</small></p>}</div></div>
       <button className="dropzone" onClick={onPick}><UploadSimple size={25} /><strong>拖拽文件到此处，或点击添加</strong><span>支持 .md .xlsx .csv .txt</span></button>
-    </> : tab === "semantic" ? <div className="context-tab-content"><BookOpenText size={28} /><h3>当前语义上下文</h3><p>读取工作区正式语义；没有正式条目时，AI仍可分析并提出待确认候选。</p><AppButton>打开语义中心</AppButton></div> : <div className="context-tab-content"><Robot size={28} /><h3>{task.domainSkill}</h3><p>覆盖输入识别、口径约束、分析框架、验证规则与输出标准。</p><AppButton>查看 Skill</AppButton></div>}
+    </> : tab === "semantic" ? <div className="context-tab-content"><BookOpenText size={28} /><h3>当前语义上下文</h3><p>读取工作区正式语义；没有正式条目时，AI仍可分析并提出待确认候选。</p><AppButton>打开语义中心</AppButton></div> : <div className="context-tab-content skill-tab">
+        <Robot size={28} />
+        {activeSkill ? <>
+          <h3>{activeSkill.name}</h3>
+          <p className="skill-domain-tag">{activeSkill.domain} · v{activeSkill.version}</p>
+          <p className="skill-desc">{activeSkill.description}</p>
+          <div className="skill-actions"><AppButton tone="ghost" onClick={() => setPickingSkill(true)}>更换 Skill</AppButton><AppButton tone="danger" onClick={() => onSetSkill(null)}>不使用 Skill</AppButton></div>
+          {activeSkill.content ? <pre className="skill-preview">{activeSkill.content.slice(0, 500)}{activeSkill.content.length > 500 ? '…' : ''}</pre> : null}
+        </> : <>
+          <h3>选择领域 Skill</h3>
+          <p>选择后，分析调度单将嵌入Skill的分析框架、验证规则和输出标准。</p>
+          {skills.length === 0 ? <div className="skill-empty-hint"><p>尚未创建任何领域Skill。<br />完成一次分析后，可在交付阶段沉淀为Skill，或手动在 03-领域分析Skills/ 目录创建。</p></div>
+          : <div className="skill-list">{skills.map((s) => <button key={s.id} className="skill-choice-row" onClick={() => onSetSkill(s.id)}><div><strong>{s.name}</strong><small>{s.domain} · v{s.version}</small><small>{s.description}</small></div><CaretRight size={16} /></button>)}</div>}
+        </>}
+      </div>}
   </section>;
 }
 
-function AnalysisEditor({ task, promptPreview, previewSource, onCopy, onDispatch, onSave }: { task: TaskDetail; promptPreview: string; previewSource: "copy" | "dispatch" | null; onCopy: (draft: PromptDraft) => void; onDispatch: (draft: PromptDraft) => void; onSave: (draft: PromptDraft) => void }) {
+function AnalysisEditor({ task, promptPreview, previewSource, onCopy, onDispatch, onSave, activeSkill }: { task: TaskDetail; promptPreview: string; previewSource: "copy" | "dispatch" | null; onCopy: (draft: PromptDraft) => void; onDispatch: (draft: PromptDraft) => void; onSave: (draft: PromptDraft) => void; activeSkill?: DomainSkill }) {
   const [goal, setGoal] = useState("基于提供的资料，完成示例经营单元的首次分析，形成初版报告、关键结论、证据和待验证问题。");
   const [thinking, setThinking] = useState("从结构、趋势、异常、对比四个维度展开；主动寻找反例与替代解释；结合历史口径变化，关注指标一致性与可比性。");
   const [verification, setVerification] = useState("严格使用资料所载口径与单位；无法判断的内容明确标注并提出补充；关键结论必须注明来源文件与行/列。");
   const draft = (): PromptDraft => ({ goal, thinking, verification });
+  const skillLabel = activeSkill ? `${activeSkill.name}（${activeSkill.domain} v${activeSkill.version}）` : '通用经营分析（未选择Skill）';
   return <section className="editor-pane pane">
-    <header className="editor-head"><div><h2>首次分析调度单</h2><p>生成时间：2026-06-24 10:21　任务：{task.name}</p></div><div><AppButton tone="ghost">模板</AppButton><AppButton tone="ghost">清空</AppButton><AppButton tone="ghost" icon={<Copy size={14} />} onClick={() => onCopy(draft())}>复制</AppButton><AppButton tone="ghost" onClick={() => onSave(draft())}>保存草稿</AppButton></div></header>
+    <header className="editor-head"><div><h2>首次分析调度单</h2><p>生成时间：{new Date().toLocaleString('zh-CN')}　任务：{task.name}</p></div><div><AppButton tone="ghost">模板</AppButton><AppButton tone="ghost">清空</AppButton><AppButton tone="ghost" icon={<Copy size={14} />} onClick={() => onCopy(draft())}>复制</AppButton><AppButton tone="ghost" onClick={() => onSave(draft())}>保存草稿</AppButton></div></header>
     <div className="editor-scroll">
       <PromptSection number="1" title="必须补充"><div className="mini-table"><span>序号</span><span>补充项</span><span>当前状态</span><span>影响</span><span>建议返回格式</span><i>--</i><i>--</i><i>--</i><i>--</i><i>--</i></div></PromptSection>
-      <div className="prompt-variables"><header><strong>Prompt 变量</strong><AppButton tone="ghost">管理</AppButton></header><div><span><b>任务ID</b>{task.name}</span><span><b>领域</b>通用经营分析</span><span><b>报告期间</b>202606</span><span><b>输出粒度</b>万元</span><span><b>单位风险阈值</b>未设置</span><button>+ 添加变量</button></div></div>
+      <div className="prompt-variables"><header><strong>Prompt 变量</strong><AppButton tone="ghost">管理</AppButton></header><div><span><b>任务ID</b>{task.name}</span><span><b>领域Skill</b>{skillLabel}</span><span><b>报告期间</b>202606</span><span><b>输出粒度</b>万元</span><span><b>单位风险阈值</b>未设置</span><button>+ 添加变量</button></div></div>
       <PromptSection number="2" title="分析目标与范围"><textarea value={goal} onChange={(event) => setGoal(event.target.value)} /></PromptSection>
       <PromptSection number="3" title="分析思路（AI 创造力引导）"><textarea value={thinking} onChange={(event) => setThinking(event.target.value)} /></PromptSection>
       <PromptSection number="4" title="校验与验证要求"><textarea value={verification} onChange={(event) => setVerification(event.target.value)} /></PromptSection>
@@ -165,13 +182,14 @@ function ReceiptPane({ task, onReveal, onRefresh }: { task: TaskDetail; onReveal
   </section>;
 }
 
-function AnalysisStage({ task, notify, refresh }: { task: TaskDetail; notify: (message: string) => void; refresh: (task: TaskDetail) => void }) {
+function AnalysisStage({ task, notify, refresh, skills, onSetSkill }: { task: TaskDetail; notify: (message: string) => void; refresh: (task: TaskDetail) => void; skills: DomainSkill[]; onSetSkill: (skillId: string | null) => Promise<void> }) {
   const [promptPreview, setPromptPreview] = useState(""); const [previewSource, setPreviewSource] = useState<"copy" | "dispatch" | null>(null);
   const copyPrompt = async (draft: PromptDraft) => { const prompt = await api.generatePrompt(task.id, "analysis", draft); setPromptPreview(prompt); setPreviewSource("copy"); try { await navigator.clipboard.writeText(prompt); notify("首次分析调度单已复制并显示预览"); } catch { notify("已显示调度单预览，可点击预览区再次复制"); } };
   const dispatchPrompt = async (draft: PromptDraft) => { const prompt = await api.dispatchPrompt(task.id, "analysis", draft); setPromptPreview(prompt); setPreviewSource("dispatch"); refresh(await api.getTask(task.id)); try { await navigator.clipboard.writeText(prompt); notify("调度单已复制并登记执行，等待外部 Agent 回执"); } catch { notify("已登记执行并显示预览，请从预览区复制调度单"); } };
   const refreshReceipt = async () => { refresh(await api.getTask(task.id)); notify("执行状态已刷新"); };
   const saveDraft = async (draft: PromptDraft) => { await api.saveFile(`${task.path}/notes/prompt-draft.json`, JSON.stringify(draft, null, 2)); notify("调度单草稿已保存"); };
-  return <div className="analysis-canvas"><ContextPane task={task} onPick={async () => refresh(await api.pickFiles(task.id, "raw"))} /><div className="resize-handle" /><AnalysisEditor task={task} promptPreview={promptPreview} previewSource={previewSource} onCopy={copyPrompt} onDispatch={dispatchPrompt} onSave={saveDraft} /><div className="resize-handle" /><ReceiptPane task={task} onReveal={() => api.revealPath(`${task.path}/outputs`)} onRefresh={refreshReceipt} /></div>;
+  const activeSkill = skills.find((s) => s.id === task.skillId);
+  return <div className="analysis-canvas"><ContextPane task={task} onPick={async () => refresh(await api.pickFiles(task.id, "raw"))} skills={skills} onSetSkill={async (sid) => { onSetSkill(sid); refresh(await api.getTask(task.id)); }} /><div className="resize-handle" /><AnalysisEditor task={task} promptPreview={promptPreview} previewSource={previewSource} onCopy={copyPrompt} onDispatch={dispatchPrompt} onSave={saveDraft} activeSkill={activeSkill} /><div className="resize-handle" /><ReceiptPane task={task} onReveal={() => api.revealPath(`${task.path}/outputs`)} onRefresh={refreshReceipt} /></div>;
 }
 
 function OverviewStage({ task, setStage }: { task: TaskDetail; setStage: (stage: StageId) => void }) {
@@ -326,10 +344,17 @@ function ValidationStage({ task, refresh, notify }: { task: TaskDetail; refresh:
 function DeliveryStage({ task, refresh, notify }: { task: TaskDetail; refresh: (task: TaskDetail) => void; notify: (m: string) => void }) {
   const [wordBusy, setWordBusy] = useState(false);
   const [preview, setPreview] = useState<{ name: string; content: string } | null>(null);
-  const generate = async (kind: "html" | "skill") => { const prompt = await api.generatePrompt(task.id, kind); await navigator.clipboard.writeText(prompt); notify(kind === "html" ? "HTML报告调度单已复制" : "Skill沉淀调度单已复制"); };
+  const generate = async (kind: "html") => { const prompt = await api.generatePrompt(task.id, kind); await navigator.clipboard.writeText(prompt); notify(kind === "html" ? "HTML报告调度单已复制" : ""); };
   const generateWord = async () => { setWordBusy(true); try { const result = await api.generateWordReport(task.id); refresh(result.task); notify(`Word 已生成：${result.outputName}`); await api.revealPath(result.outputPath); } catch (error: any) { notify(error.message || "Word 生成失败"); } finally { setWordBusy(false); } };
+  const precipitateSkill = async () => {
+    try {
+      const skill = await api.precipitateSkill(task.id, { name: task.name, description: "从本次分析中提炼的可复用方法", domain: "经营分析" });
+      notify(`领域Skill已沉淀：${skill.name}，并已关联到当前任务`);
+      refresh(await api.getTask(task.id));
+    } catch (error: any) { notify(error.message || "沉淀失败"); }
+  };
   const openOutput = async (file: FileEntry) => { if (file.type === "md") { setPreview({ name: file.name, content: await api.readFile(file.path) }); } else await api.revealPath(file.path); };
-  return <div className="delivery-stage"><div className="delivery-layout"><section className="work-section"><header><div><h2>正式输出</h2><span>{task.outputs.length} 个文件</span></div><div className="inline-actions"><AppButton icon={<ArrowClockwise size={16} />} onClick={async () => refresh(await api.getTask(task.id))}>刷新</AppButton><AppButton icon={<FolderOpen size={16} />} onClick={() => api.revealPath(`${task.path}/outputs`)}>打开目录</AppButton></div></header><div className="output-list">{task.outputs.map((file) => <button key={file.path} onClick={() => openOutput(file)}><IconForFile file={file} /><span><strong>{file.name}</strong><small>{file.type === "md" ? "点击应用内预览" : "点击在系统中打开"} · {file.sizeKb} KB</small></span><CaretRight size={15} /></button>)}{!task.outputs.length ? <div className="output-empty">目录中暂无正式输出。请先在 03 完成分析并生成 Markdown 报告。</div> : null}</div></section><section className="work-section"><header><div><h2>交付工具</h2><span>应用内转换会直接写入 outputs</span></div></header><button className="command-row" onClick={generateWord} disabled={wordBusy}><FileDoc size={21} />{wordBusy ? <span><strong>正在生成 Word…</strong><small>读取最新 Markdown 正式报告</small></span> : <span><strong>直接生成 Word 报告</strong><small>从 outputs 中最新的 .md 报告生成 .docx</small></span>}<CaretRight size={15} /></button><button className="command-row" onClick={() => generate("html")}><SquaresFour size={21} /><span><strong>生成 HTML 报告调度单</strong><small>复制调度单，交给外部 Agent 生成</small></span><CaretRight size={15} /></button><button className="command-row" onClick={() => generate("skill")}><Robot size={21} /><span><strong>沉淀领域 Skill</strong><small>复制调度单，提炼可复用方法</small></span><CaretRight size={15} /></button></section></div>{preview ? <section className="markdown-preview"><header><div><h2>Markdown 输出预览</h2><span>{preview.name}</span></div><AppButton onClick={() => setPreview(null)}>关闭预览</AppButton></header><article>{preview.content}</article></section> : null}</div>;
+  return <div className="delivery-stage"><div className="delivery-layout"><section className="work-section"><header><div><h2>正式输出</h2><span>{task.outputs.length} 个文件</span></div><div className="inline-actions"><AppButton icon={<ArrowClockwise size={16} />} onClick={async () => refresh(await api.getTask(task.id))}>刷新</AppButton><AppButton icon={<FolderOpen size={16} />} onClick={() => api.revealPath(`${task.path}/outputs`)}>打开目录</AppButton></div></header><div className="output-list">{task.outputs.map((file) => <button key={file.path} onClick={() => openOutput(file)}><IconForFile file={file} /><span><strong>{file.name}</strong><small>{file.type === "md" ? "点击应用内预览" : "点击在系统中打开"} · {file.sizeKb} KB</small></span><CaretRight size={15} /></button>)}{!task.outputs.length ? <div className="output-empty">目录中暂无正式输出。请先在 03 完成分析并生成 Markdown 报告。</div> : null}</div></section><section className="work-section"><header><div><h2>交付工具</h2><span>应用内转换会直接写入 outputs</span></div></header><button className="command-row" onClick={generateWord} disabled={wordBusy}><FileDoc size={21} />{wordBusy ? <span><strong>正在生成 Word…</strong><small>读取最新 Markdown 正式报告</small></span> : <span><strong>直接生成 Word 报告</strong><small>从 outputs 中最新的 .md 报告生成 .docx</small></span>}<CaretRight size={15} /></button><button className="command-row" onClick={() => generate("html")}><SquaresFour size={21} /><span><strong>生成 HTML 报告调度单</strong><small>复制调度单，交给外部 Agent 生成</small></span><CaretRight size={15} /></button><button className="command-row" onClick={precipitateSkill}><Robot size={21} /><span><strong>沉淀领域 Skill</strong><small>从本次分析提炼方法，写入 03-领域分析Skills/，并关联当前任务</small></span><CaretRight size={15} /></button></section></div>{preview ? <section className="markdown-preview"><header><div><h2>Markdown 输出预览</h2><span>{preview.name}</span></div><AppButton onClick={() => setPreview(null)}>关闭预览</AppButton></header><article>{preview.content}</article></section> : null}</div>;
 }
 
 function EvaluationStage({ task, refresh, notify }: { task: TaskDetail; refresh: (task: TaskDetail) => void; notify: (m: string) => void }) {
@@ -481,9 +506,11 @@ export function App() {
   const [query, setQuery] = useState("");
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [toast, setToast] = useState("");
+  const [skills, setSkills] = useState<DomainSkill[]>([]);
 
   const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(""), 2400); };
   useEffect(() => { api.getSnapshot().then((data) => { setSnapshot(data); setTask(data.selectedTask || null); if (data.selectedTask) setStage(data.selectedTask.stage); }); }, []);
+  useEffect(() => { api.listSkills().then(setSkills).catch(() => {}); }, []);
   useEffect(() => { const handler = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") { event.preventDefault(); setNewTaskOpen(true); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, []);
   const activeTask = task;
   const taskIds = useMemo(() => new Set(snapshot?.tasks.map((item) => item.id) || []), [snapshot]);
@@ -497,6 +524,13 @@ export function App() {
   const downloadUpdate = async () => { const version = snapshot?.update.version; setSnapshot((current) => current ? { ...current, update: { status: "downloading", version } } : current); try { await api.downloadUpdate(); setSnapshot((current) => current ? { ...current, update: { status: "downloaded", version } } : current); notify("更新已下载，可以重启安装"); } catch { setSnapshot((current) => current ? { ...current, update: { status: "error", version } } : current); notify("更新下载失败"); } };
   const installUpdate = async () => { setSnapshot((current) => current ? { ...current, update: { ...current.update, status: "installing" } } : current); notify("应用将退出并安装更新"); await api.installUpdate(); };
 
+  const setTaskSkill = async (skillId: string | null) => {
+    if (!activeTask) return;
+    const updated = await api.setTaskSkill(activeTask.id, skillId);
+    refreshTask(updated);
+    notify(skillId ? 'Skill已关联' : '已取消Skill关联');
+  };
+
   if (!snapshot || !activeTask) return <div className="app-loading"><Spinner /><strong>正在打开本地工作区</strong></div>;
 
   let content: React.ReactNode;
@@ -505,7 +539,7 @@ export function App() {
   else {
     const stageContent = stage === "overview" ? <OverviewStage task={activeTask} setStage={setStage} />
       : stage === "data" ? <DataStage task={activeTask} refresh={refreshTask} notify={notify} />
-      : stage === "analysis" ? <AnalysisStage task={activeTask} refresh={refreshTask} notify={notify} />
+      : stage === "analysis" ? <AnalysisStage task={activeTask} refresh={refreshTask} notify={notify} skills={skills} onSetSkill={setTaskSkill} />
       : stage === "four-piece" ? <FourPieceStage task={activeTask} refresh={refreshTask} notify={notify} />
       : stage === "validation" ? <ValidationStage task={activeTask} refresh={refreshTask} notify={notify} />
       : stage === "delivery" ? <DeliveryStage task={activeTask} refresh={refreshTask} notify={notify} />

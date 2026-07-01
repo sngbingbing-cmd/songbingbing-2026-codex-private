@@ -58,6 +58,7 @@ export interface TaskDetail extends TaskSummary {
   evaluation: { status: string; score?: number; checkedAt?: string; checks?: EvaluationCheck[] };
   semanticConflicts: number;
   domainSkill: string;
+  skillId?: string;
   prompt?: string;
 }
 
@@ -105,6 +106,19 @@ export interface PromptDraft {
   verification: string;
 }
 
+// ── Domain Skill ──────────────────────────────────────────────
+export interface DomainSkill {
+  id: string;             // filename without extension, e.g. "物业费收缴率分析"
+  name: string;           // display name
+  description: string;    // one-line summary
+  domain: string;         // domain category, e.g. "经营分析", "成本管理"
+  version: string;        // "1.0"
+  content: string;        // full markdown body
+  createdAt: string;
+  updatedAt: string;
+  sourceTaskId?: string;  // which task this was precipitated from
+}
+
 export interface WorkbenchApi {
   getSnapshot(): Promise<AppSnapshot>;
   selectWorkspace(): Promise<AppSnapshot | null>;
@@ -138,6 +152,13 @@ export interface WorkbenchApi {
   checkForUpdates(): Promise<{ status: string; version?: string }>;
   downloadUpdate(): Promise<{ downloaded: boolean }>;
   installUpdate(): Promise<void>;
+  // Skill
+  listSkills(): Promise<DomainSkill[]>;
+  getSkill(skillId: string): Promise<DomainSkill | null>;
+  saveSkill(skill: DomainSkill): Promise<DomainSkill>;
+  deleteSkill(skillId: string): Promise<void>;
+  setTaskSkill(taskId: string, skillId: string | null): Promise<TaskDetail>;
+  precipitateSkill(taskId: string, skillDraft: { name: string; description: string; domain: string }): Promise<DomainSkill>;
 }
 
 declare global {

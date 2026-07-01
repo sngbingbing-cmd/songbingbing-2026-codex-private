@@ -532,6 +532,176 @@ class WorkspaceService {
     return rejected;
   }
 
+  // ── Domain Skill management ──────────────────────────────────────
+
+  static SKILLS_DIR = '03-领域分析Skills';
+
+  /**
+   * List all persisted domain skills.
+   * @returns {object[]}
+   */
+  listSkills() {
+    const skillsDir = this.resolvePath(WorkspaceService.SKILLS_DIR);
+    if (!fs.existsSync(skillsDir)) return [];
+    const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md') && entry.name !== 'README.md')
+      .map((entry) => this._readSkillFile(entry.name))
+      .filter((skill) => skill !== null);
+  }
+
+  /**
+   * Get a single skill by id (filename without extension).
+   * @param {string} skillId
+   * @returns {object|null}
+   */
+  getSkill(skillId) {
+    if (!skillId || typeof skillId !== 'string') return null;
+    const safeName = skillId.replace(/[\\/:*?"<>|]/g, '-');
+    const filePath = this.resolvePath(WorkspaceService.SKILLS_DIR, `${safeName}.md`);
+    if (!fs.existsSync(filePath)) return null;
+    return this._readSkillFile(`${safeName}.md`);
+  }
+
+  /**
+   * Save (create or update) a domain skill.
+   * @param {object} skill - { id, name, description, domain, version, content }
+   * @returns {object}
+   */
+  saveSkill(skill) {
+    if (!skill?.id || !skill?.name) throw new Error('Skill must have id and name');
+    const safeName = String(skill.id).replace(/[\\/:*?"<>|]/g, '-');
+    const now = new Date().toISOString();
+    const existing = this._readSkillFile(`${safeName}.md`);
+    const record = {
+      id: safeName,
+      name: String(skill.name || skill.id).trim(),
+      description: String(skill.description || '').trim(),
+      domain: String(skill.domain || '通用').trim(),
+      version: String(skill.version || '1.0').trim(),
+      content: String(skill.content || '').trim(),
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+      sourceTaskId: skill.sourceTaskId || existing?.sourceTaskId || null,
+    };
+    this._writeSkillFile(record);
+    return record;
+  }
+
+  /**
+   * Delete a domain skill.
+   * @param {string} skillId
+   */
+  deleteSkill(skillId) {
+    if (!skillId) throw new Error('skillId is required');
+    const safeName = String(skillId).replace(/[\\/:*?"<>|]/g, '-');
+    const filePath = this.resolvePath(WorkspaceService.SKILLS_DIR, `${safeName}.md`);
+    if (!fs.existsSync(filePath)) throw new Error(`Skill not found: ${skillId}`);
+    fs.unlinkSync(filePath);
+  }
+
+  /**
+   * Generate a skill file content from a record.
+   * @param {object} skill
+   * @returns {string}
+   */
+  static formatSkillMarkdown(skill) {
+    return [
+      `---`,
+      `id: ${skill.id}`,
+      `name: ${skill.name}`,
+      `description: ${skill.description}`,
+      `domain: ${skill.domain}`,
+      `version: ${skill.version}`,
+      `createdAt: ${skill.createdAt}`,
+      `updatedAt: ${skill.updatedAt}`,
+      `${skill.sourceTaskId ? `sourceTaskId: ${skill.sourceTaskId}` : ''}`,
+      `---`,
+      '',
+      skill.content || '',
+    ].filter(l => l !== '').join('\n');
+  }
+
+  /**
+   * Parse a skill markdown file back to a record.
+   * @param {string} content
+   * @param {string} fileName
+   * @returns {object|null}
+   */
+  static parseSkillContent(content, fileName) {
+    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    if (!match) {
+      // Legacy: no frontmatter, treat all as content
+      const name = fileName.replace(/\.md$/i, '');
+      return { id: name, name, description: '', domain: '通用', version: '1.0', content, createdAt: '', updatedAt: '' };
+    }
+    const frontmatter = match[1];
+    const body = match[2] || '';
+    const parsed = {};
+    for (const line of frontmatter.split('\n')) {
+      const colonIdx = line.indexOf(':');
+      if (colonIdx === -1) continue;
+      const key = line.slice(0, colonIdx).trim();
+      const value = line.slice(colonIdx + 1).trim();
+      parsed[key] = value;
+    }
+    return {
+      id: parsed.id || fileName.replace(/\.md$/i, ''),
+      name: parsed.name || parsed.id || fileName.replace(/\.md$/i, ''),
+      description: parsed.description || '',
+      domain: parsed.domain || '通用',
+      version: parsed.version || '1.0',
+      createdAt: parsed.createdAt || '',
+      updatedAt: parsed.updatedAt || '',
+      sourceTaskId: parsed.sourceTaskId || undefined,
+      content: body.trim(),
+    };
+  }
+
+  /** @private */
+  _readSkillFile(fileName) {
+    const filePath = this.resolvePath(WorkspaceService.SKILLS_DIR, fileName);
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      return WorkspaceService.parseSkillContent(content, fileName);
+    } catch {
+      return null;
+    }
+  }
+
+  /** @private */
+  _writeSkillFile(skill) {
+    const filePath = this.resolvePath(WorkspaceService.SKILLS_DIR, `${skill.id}.md`);
+    const dir = path.dirname(filePath);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(filePath, WorkspaceService.formatSkillMarkdown(skill), 'utf8');
+  }
+
+  _readSkillFileByName(skillId) {
+    const safeName = String(skillId).replace(/[\\/:*?"<>|]/g, '-');
+    return this._readSkillFile(`${safeName}.md`);
+  }
+
+  /**
+   * Associate a skill with a task (or unset).
+   * @param {string} taskId
+   * @param {string|null} skillId
+   * @returns {object} updated task
+   */
+  setTaskSkill(taskId, skillId) {
+    const task = this.getTask(taskId);
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    const existing = this._readJson(TASKS_DIR, taskId, 'skill.json') || {};
+    existing.skillId = skillId || null;
+    existing.updatedAt = new Date().toISOString();
+    this._writeJson(existing, TASKS_DIR, taskId, 'skill.json');
+    return this.getTask(taskId);
+  }
+
+  _readTaskSkill(taskId) {
+    return this._readJson(TASKS_DIR, taskId, 'skill.json');
+  }
+
   // ── External source management ────────────────────────────────────
 
   /**
@@ -802,6 +972,23 @@ class WorkspaceService {
     const validationPath = path.join(taskRoot, 'validation');
     const receiptPath = path.join(taskRoot, 'receipt.json');
     const safeTitle = (task.title || task.id).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
+
+    // Read associated domain skill
+    const skillAssoc = this._readTaskSkill(taskId);
+    const activeSkill = skillAssoc?.skillId ? this._readSkillFileByName(skillAssoc.skillId) : null;
+    const skillBlock = activeSkill ? [
+      '',
+      `## S. 当前任务关联的领域Skill: ${activeSkill.name}`,
+      `- Skill ID: ${activeSkill.id}`,
+      `- 领域: ${activeSkill.domain}  |  版本: ${activeSkill.version}`,
+      `- ${activeSkill.description}`,
+      '',
+      '### Skill定义（分析框架与规则）',
+      activeSkill.content,
+      '',
+      '> 调度指令中给出的规则优先于Skill中的默认规则。Skill提供框架和标准，不替代证据核验与创造性洞察。',
+    ] : [];
+
     const kindConfig = {
       analysis: { label: '首次分析', output: path.join(outputsPath, `${safeTitle}_首次分析.md`) },
       reanalysis: { label: '重分析', output: path.join(outputsPath, `${safeTitle}_重分析.md`) },
@@ -902,6 +1089,7 @@ class WorkspaceService {
       ``,
       `禁止修改外部资料目录、工作区正式权威语义层及当前任务之外的任何文件。语义改进只能写成候选建议，等待人工确认。`,
       ...this._buildExternalSourcesPrompt(taskId),
+      ...skillBlock,
       ``,
       `## 2. 任务基本信息`,
       `- 任务ID: ${task.id}`,

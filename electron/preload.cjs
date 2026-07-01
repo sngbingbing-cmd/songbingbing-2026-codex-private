@@ -66,7 +66,7 @@ async function getTaskDetail(id) {
   const summary = await normalizeSummary(task);
   const base = `04-分析任务/${id}`;
   const requiredNames = ['分析请求.md', '来源清单.md', '口径映射.md', '验证清单.md'];
-  const [inboxFiles, rawFiles, outputs, notes, validationFiles, receipt, evaluationFile, promptResult, ...requiredResults] = await Promise.all([
+  const [inboxFiles, rawFiles, outputs, notes, validationFiles, receipt, evaluationFile, skillAssoc, ...requiredResults] = await Promise.all([
     listFiles(base, 'inbox'),
     listFiles(base, 'raw'),
     listFiles(base, 'outputs'),
@@ -74,7 +74,7 @@ async function getTaskDetail(id) {
     listFiles(base, 'validation'),
     invoke('receipt:read', id),
     invoke('file:read', `${base}/validation/evaluation.json`),
-    invoke('prompt:generate', id, 'analysis'),
+    invoke('skill:get-task', id),
     ...requiredNames.map((name) => invoke('file:read', `${base}/${name}`)),
   ]);
   const requiredDocs = requiredNames.map((name, index) => {
@@ -129,7 +129,8 @@ async function getTaskDetail(id) {
     evaluation: persistedEvaluation || receipt?.evaluation || { status: '未评测' },
     semanticConflicts: 0,
     domainSkill: task.taskType === 'analysis' ? '通用经营分析' : task.taskType,
-    prompt: promptResult?.prompt || '',
+    skillId: skillAssoc?.skillId || null,
+    prompt: '',
   };
 }
 
@@ -203,8 +204,9 @@ const workbench = {
     workspaceInfo = selected;
     return getSnapshot();
   },
-  async createTask(name) {
-    const task = await invoke('task:create', { title: name, taskType: 'analysis' });
+  async createTask(name, skillId) {
+    const task = await invoke('task:create', { title: name, taskType: 'analysis', skillId });
+    if (skillId) await invoke('skill:set-task', task.id, skillId);
     return getTaskDetail(task.id);
   },
   getTask: getTaskDetail,
@@ -334,6 +336,43 @@ const workbench = {
 
     await invoke('file:save', `04-分析任务/${id}/validation/evaluation.json`, JSON.stringify(evaluation, null, 2));
     return { ...detail, evaluation };
+  },
+  // Skill
+  async listSkills() {
+    return invoke('skill:list');
+  },
+  async getSkill(skillId) {
+    return invoke('skill:get', skillId);
+  },
+  async saveSkill(skill) {
+    return invoke('skill:save', skill);
+  },
+  async deleteSkill(skillId) {
+    return invoke('skill:delete', skillId);
+  },
+  async setTaskSkill(taskId, skillId) {
+    await invoke('skill:set-task', taskId, skillId);
+    return getTaskDetail(taskId);
+  },
+  async precipitateSkill(taskId, skillDraft) {
+    const detail = await getTaskDetail(taskId);
+    const safeName = (skillDraft.name || 'skill').replace(/[\\/:*?"<>|]/g, '-');
+    const skillId = `${safeName}-${Date.now().toString(36)}`;
+    const skill = {
+      id: skillId,
+      name: skillDraft.name,
+      description: skillDraft.description || '',
+      domain: skillDraft.domain || '通用',
+      version: '1.0',
+      content: `# ${skillDraft.name}\n\n## 沉淀来源\n- 任务：${detail.name}（${detail.id}）\n- 沉淀时间：${new Date().toISOString()}\n\n## 分析框架（从本次分析中提炼）\n\n> 请在下方补充分析框架、关键规则和可复用方法。\n\n## 验证规则\n\n> 请补充校验规则和常见陷阱。\n\n## 输出标准\n\n> 请补充报告格式和输出要求。`,
+      sourceTaskId: taskId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const saved = await invoke('skill:save', skill);
+    // Associate this skill with the task
+    await invoke('skill:set-task', taskId, skillId);
+    return saved;
   },
   async checkForUpdates() {
     const result = await invoke('update:check');

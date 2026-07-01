@@ -149,6 +149,26 @@ kbd { padding: 1px 4px; border: 0; border-radius: 3px; color: inherit; backgroun
 .context-tab-content h3 { margin: 12px 0 5px; font-size: 13px; }
 .context-tab-content p { color: var(--muted); font-size: 10px; line-height: 1.6; }
 
+/* ── Skill tab ────────────────────── */
+.skill-tab { justify-items: stretch; padding: 20px 12px; text-align: left; }
+.skill-tab h3 { text-align: center; }
+.skill-tab .skill-domain-tag { text-align: center; color: var(--accent); font-size: 9px; margin: 0 0 8px; }
+.skill-tab .skill-desc { text-align: center; color: var(--muted); font-size: 10px; margin: 0 0 16px; }
+.skill-tab .skill-actions { display: flex; justify-content: center; gap: 8px; margin-bottom: 16px; }
+.skill-tab .skill-preview { max-height: 200px; overflow: auto; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 10px; font-size: 9px; line-height: 1.5; color: var(--muted); white-space: pre-wrap; }
+.skill-tab .skill-list { display: grid; gap: 6px; }
+.skill-tab .skill-choice-row { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--bg-2); color: var(--ink); cursor: pointer; text-align: left; }
+.skill-tab .skill-choice-row:hover { border-color: var(--accent); background: var(--bg-1); }
+.skill-tab .skill-choice-row div { display: grid; gap: 2px; }
+.skill-tab .skill-choice-row strong { font-size: 11px; }
+.skill-tab .skill-choice-row small { font-size: 9px; color: var(--muted); }
+.skill-tab .skill-empty-hint { text-align: center; padding: 12px 0; }
+.skill-tab .skill-empty-hint p { font-size: 10px; line-height: 1.7; }
+.skill-mini-info { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; }
+.skill-mini-info p { margin: 0; font-size: 10px; line-height: 1.5; }
+.skill-mini-info p small { display: block; color: var(--muted); }
+.skill-mini-info > svg { margin-top: 1px; flex-shrink: 0; }
+
 .editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .editor-head p { margin: 5px 0 0; color: var(--muted); font-size: 9px; }
 .editor-head > div:last-child { display: flex; gap: 3px; }

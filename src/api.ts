@@ -1,17 +1,18 @@
 import { mockDetail, mockExternalSources, mockSnapshot } from "./mock";
-import type { AppSnapshot, ExternalSourceInfo, TaskDetail, WorkbenchApi } from "./types";
+import type { AppSnapshot, DomainSkill, ExternalSourceInfo, TaskDetail, WorkbenchApi } from "./types";
 
 const wait = (ms = 180) => new Promise((resolve) => setTimeout(resolve, ms));
 let snapshot: AppSnapshot = structuredClone(mockSnapshot);
 let externalSources: ExternalSourceInfo[] = structuredClone(mockExternalSources);
+let mockSkills: DomainSkill[] = [];
 
 const mockApi: WorkbenchApi = {
   async getSnapshot() { await wait(); return structuredClone(snapshot); },
   async selectWorkspace() { await wait(); return structuredClone(snapshot); },
-  async createTask(name) {
+  async createTask(name: string, skillId?: string) {
     await wait();
     const id = `${new Date().toISOString().slice(0, 10).replaceAll("-", "")}_${name}`;
-    const task: TaskDetail = { ...structuredClone(mockDetail), id, name: id, path: `${snapshot.workspacePath}/04-分析任务/${id}`, stage: "data", stageLabel: "02 资料", rawCount: 0, outputCount: 0, rawFiles: [], outputs: [], validation: [] };
+    const task: TaskDetail = { ...structuredClone(mockDetail), id, name: id, path: `${snapshot.workspacePath}/04-分析任务/${id}`, stage: "data", stageLabel: "02 资料", rawCount: 0, outputCount: 0, rawFiles: [], outputs: [], validation: [], skillId: skillId || undefined };
     snapshot.tasks.unshift(task);
     snapshot.selectedTask = task;
     return task;
@@ -53,6 +54,37 @@ const mockApi: WorkbenchApi = {
   async checkForUpdates() { await wait(500); return { status: "current" }; },
   async downloadUpdate() { await wait(900); return { downloaded: true }; },
   async installUpdate() { await wait(); },
+  // Skill
+  async listSkills() { await wait(); return structuredClone(mockSkills); },
+  async getSkill(skillId) { await wait(); return structuredClone(mockSkills.find((s) => s.id === skillId) || null); },
+  async saveSkill(skill) {
+    await wait(300);
+    const now = new Date().toISOString();
+    const existing = mockSkills.findIndex((s) => s.id === skill.id);
+    const saved: DomainSkill = { ...skill, createdAt: skill.createdAt || now, updatedAt: now };
+    if (existing >= 0) mockSkills[existing] = saved; else mockSkills.push(saved);
+    return structuredClone(saved);
+  },
+  async deleteSkill(skillId) { await wait(); mockSkills = mockSkills.filter((s) => s.id !== skillId); },
+  async setTaskSkill(taskId, skillId) {
+    await wait();
+    snapshot.tasks = snapshot.tasks.map((t) => t.id === taskId ? { ...t, skillId: skillId || undefined } : t);
+    if (snapshot.selectedTask?.id === taskId) (snapshot.selectedTask as any).skillId = skillId || undefined;
+    return structuredClone(snapshot.selectedTask || snapshot.tasks[0]) as TaskDetail;
+  },
+  async precipitateSkill(taskId, skillDraft) {
+    await wait(400);
+    const skillId = `${skillDraft.name.replace(/[\\/:*?"<>|]/g, '-')}-${Date.now().toString(36)}`;
+    const skill: DomainSkill = {
+      id: skillId, name: skillDraft.name, description: skillDraft.description || '',
+      domain: skillDraft.domain || '通用', version: '1.0',
+      content: `# ${skillDraft.name}\n\n## 沉淀来源\n任务：${taskId}\n\n## 分析框架\n（从本次分析中提炼）\n\n## 验证规则\n（待补充）`,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      sourceTaskId: taskId,
+    };
+    mockSkills.push(skill);
+    return structuredClone(skill);
+  },
   async getExternalSources(_id) { await wait(); return structuredClone(externalSources); },
   async linkExternalSource(_id, sourcePath, label) {
     await wait();
