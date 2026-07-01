@@ -320,6 +320,25 @@ kbd { padding: 1px 4px; border: 0; border-radius: 3px; color: inherit; backgroun
 .reanalysis-gate strong { font-size: 10px; }
 .reanalysis-gate span { margin-top: 3px; color: var(--muted); font-size: 8px; }
 
+/* ── Reanalysis section ──────────── */
+.reanalysis-section { margin: 16px 12px 0; padding: 12px; border-top: 1px solid var(--line); }
+.reanalysis-section h3 { margin: 0 0 6px; font-size: 11px; }
+.reanalysis-section > p { margin: 0 0 12px; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.reanalysis-actions { display: flex; gap: 8px; }
+
+/* ── Prompt preview panel (shared) ── */
+.prompt-preview-panel { margin: 12px; border: 1px solid var(--accent); border-radius: 8px; overflow: hidden; }
+.prompt-preview-panel header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 12px; background: rgba(79,157,118,0.08); border-bottom: 1px solid var(--line); }
+.prompt-preview-panel header strong { display: block; font-size: 11px; margin-bottom: 2px; }
+.prompt-preview-panel header span { color: var(--muted); font-size: 9px; }
+.prompt-preview-panel pre { margin: 0; padding: 14px; max-height: 420px; overflow: auto; background: var(--bg-2); font-size: 10px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; color: var(--ink); }
+.prompt-preview-panel .inline-actions { display: flex; gap: 4px; }
+.analysis-prompt-preview { margin-top: 12px; border: 1px solid var(--accent); border-radius: 8px; overflow: hidden; }
+.analysis-prompt-preview header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 12px; background: rgba(79,157,118,0.08); border-bottom: 1px solid var(--line); }
+.analysis-prompt-preview header strong { display: block; font-size: 11px; margin-bottom: 2px; }
+.analysis-prompt-preview header span { color: var(--muted); font-size: 9px; }
+.analysis-prompt-preview pre { margin: 0; padding: 14px; max-height: 420px; overflow: auto; background: var(--bg-2); font-size: 10px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; color: var(--ink); }
+
 .output-list button, .command-row, .semantic-doc-row { display: grid; grid-template-columns: 25px 1fr 16px; align-items: center; gap: 8px; width: 100%; min-height: 58px; padding: 9px 12px; border: 0; border-bottom: 1px solid var(--line-2); color: var(--ink); background: white; text-align: left; }
 .output-list span strong, .output-list span small, .command-row span strong, .command-row span small, .semantic-doc-row span strong, .semantic-doc-row span small { display: block; }
 .output-list strong, .command-row strong, .semantic-doc-row strong { font-size: 10px; }
