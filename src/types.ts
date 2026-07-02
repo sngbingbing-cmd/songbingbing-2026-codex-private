@@ -107,6 +107,12 @@ export interface PromptDraft {
 }
 
 // ── Domain Skill ──────────────────────────────────────────────
+export interface SkillCapability {
+  id: string;       // e.g. "dataAnalysis"
+  label: string;    // e.g. "数据计算"
+  description: string;
+}
+
 export interface DomainSkill {
   id: string;             // filename without extension, e.g. "物业费收缴率分析"
   name: string;           // display name
@@ -114,6 +120,8 @@ export interface DomainSkill {
   domain: string;         // domain category, e.g. "经营分析", "成本管理"
   version: string;        // "1.0"
   content: string;        // full markdown body
+  capabilities?: SkillCapability[];     // what this skill can do
+  agentSkillMapping?: Record<string, string>; // agentType → skillId, e.g. {"workbuddy":"onewo-site-business-analysis"}
   createdAt: string;
   updatedAt: string;
   sourceTaskId?: string;  // which task this was precipitated from

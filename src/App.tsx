@@ -131,6 +131,8 @@ function ContextPane({ task, onPick, skills, onSetSkill }: { task: TaskDetail; o
           <p className="skill-domain-tag">{activeSkill.domain} · v{activeSkill.version}</p>
           <p className="skill-desc">{activeSkill.description}</p>
           <div className="skill-actions"><AppButton tone="ghost" onClick={() => setPickingSkill(true)}>更换 Skill</AppButton><AppButton tone="danger" onClick={() => onSetSkill(null)}>不使用 Skill</AppButton></div>
+          {activeSkill.capabilities && activeSkill.capabilities.length > 0 ? <div className="skill-capabilities"><h4>能力声明</h4><div className="cap-list">{activeSkill.capabilities.map((cap) => <span key={cap.id} className="cap-tag" title={cap.description}>{cap.label}</span>)}</div></div> : null}
+          {activeSkill.agentSkillMapping && Object.keys(activeSkill.agentSkillMapping).length > 0 ? <div className="skill-mapping"><h4>Agent Skill 映射</h4>{Object.entries(activeSkill.agentSkillMapping).map(([agent, sid]) => <span key={agent} className="map-tag">{agent} → {sid}</span>)}</div> : null}
           {activeSkill.content ? <pre className="skill-preview">{activeSkill.content.slice(0, 500)}{activeSkill.content.length > 500 ? '…' : ''}</pre> : null}
         </> : <>
           <h3>选择领域 Skill</h3>

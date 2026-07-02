@@ -358,19 +358,84 @@ const workbench = {
     const detail = await getTaskDetail(taskId);
     const safeName = (skillDraft.name || 'skill').replace(/[\\/:*?"<>|]/g, '-');
     const skillId = `${safeName}-${Date.now().toString(36)}`;
+
+    // Read task outputs to seed skill content
+    let seedContent = '';
+    try {
+      // Read analysis outputs for pattern extraction
+      const outputMdFiles = detail.outputs.filter((f) => f.type === 'md');
+      const reportFile = outputMdFiles.find((f) => f.name.includes('分析') || f.name.includes('报告'));
+      const reportContent = reportFile ? (await invoke('file:read', `04-分析任务/${taskId}/outputs/${reportFile.name}`)) : null;
+
+      // Read four-piece documents for rules
+      const requiredDocs = detail.requiredDocs || [];
+      const verificationDoc = requiredDocs.find((d) => d.name === '验证清单.md');
+      const caliberDoc = requiredDocs.find((d) => d.name === '口径映射.md');
+
+      // Build seed content from what we found
+      const parts = [`# ${skillDraft.name}`, '', `## 沉淀来源`, `- 任务：${detail.name}（${detail.id}）`, `- 沉淀时间：${new Date().toISOString()}`, ''];
+
+      if (reportContent?.content) {
+        const reportText = reportContent.content;
+        // Extract headings as potential analysis steps
+        const headings = reportText.split('\n').filter((l) => l.match(/^#{1,3}\s/)).slice(0, 10);
+        if (headings.length > 0) {
+          parts.push('## 分析框架（从本次分析中提取）', '');
+          parts.push('> 以下框架从实际分析输出中自动提取，请根据本次分析的实际情况修改和完善。', '');
+          for (const h of headings) {
+            parts.push(`- ${h.replace(/^#+\s*/, '').trim()}`);
+          }
+          parts.push('');
+        }
+      }
+
+      // Add verification rules section
+      parts.push('## 验证规则', '');
+      if (verificationDoc?.content) {
+        const vLines = verificationDoc.content.split('\n')
+          .filter((l) => l.match(/^- \[ \]/) || l.match(/^- \[x\]/i) || l.match(/^- \[X\]/))
+          .slice(0, 10);
+        if (vLines.length > 0) {
+          for (const line of vLines) parts.push(`- [ ] ${line.replace(/^- \[[ xX]\]\s*/, '')}`);
+        } else {
+          parts.push('> 请从验证清单中补充校验规则和常见陷阱。');
+        }
+      } else {
+        parts.push('> 请补充校验规则和常见陷阱。');
+      }
+      parts.push('');
+
+      // Add caliber section
+      if (caliberDoc?.content) {
+        const tableLines = caliberDoc.content.split('\n').filter((l) => l.trim().startsWith('|') && l.includes('|')).slice(0, 8);
+        if (tableLines.length > 0) {
+          parts.push('## 关键口径', '');
+          for (const line of tableLines) parts.push(line);
+          parts.push('');
+        }
+      }
+
+      parts.push('## 输出标准', '');
+      parts.push('> 请补充报告格式和输出要求。');
+
+      seedContent = parts.join('\n');
+    } catch {
+      // Fallback to basic template
+      seedContent = `# ${skillDraft.name}\n\n## 沉淀来源\n- 任务：${detail.name}（${detail.id}）\n- 沉淀时间：${new Date().toISOString()}\n\n## 分析框架\n\n> 请补充分析框架、关键规则和可复用方法。\n\n## 验证规则\n\n> 请补充校验规则。\n\n## 输出标准\n\n> 请补充输出要求。`;
+    }
+
     const skill = {
       id: skillId,
       name: skillDraft.name,
       description: skillDraft.description || '',
       domain: skillDraft.domain || '通用',
       version: '1.0',
-      content: `# ${skillDraft.name}\n\n## 沉淀来源\n- 任务：${detail.name}（${detail.id}）\n- 沉淀时间：${new Date().toISOString()}\n\n## 分析框架（从本次分析中提炼）\n\n> 请在下方补充分析框架、关键规则和可复用方法。\n\n## 验证规则\n\n> 请补充校验规则和常见陷阱。\n\n## 输出标准\n\n> 请补充报告格式和输出要求。`,
+      content: seedContent,
       sourceTaskId: taskId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     const saved = await invoke('skill:save', skill);
-    // Associate this skill with the task
     await invoke('skill:set-task', taskId, skillId);
     return saved;
   },

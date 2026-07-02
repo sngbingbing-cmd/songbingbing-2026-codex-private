@@ -169,6 +169,13 @@ kbd { padding: 1px 4px; border: 0; border-radius: 3px; color: inherit; backgroun
 .skill-mini-info p small { display: block; color: var(--muted); }
 .skill-mini-info > svg { margin-top: 1px; flex-shrink: 0; }
 
+/* ── Skill capabilities & mapping ── */
+.skill-capabilities, .skill-mapping { margin: 12px 0; }
+.skill-capabilities h4, .skill-mapping h4 { margin: 0 0 6px; font-size: 10px; color: var(--muted); text-transform: none; }
+.cap-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.cap-tag { display: inline-block; padding: 2px 7px; background: rgba(79,157,118,0.12); color: var(--accent); border-radius: 4px; font-size: 9px; cursor: default; }
+.map-tag { display: inline-block; padding: 2px 7px; background: rgba(107,133,166,0.12); color: #6b85a6; border-radius: 4px; font-size: 9px; margin-right: 4px; }
+
 .editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .editor-head p { margin: 5px 0 0; color: var(--muted); font-size: 9px; }
 .editor-head > div:last-child { display: flex; gap: 3px; }

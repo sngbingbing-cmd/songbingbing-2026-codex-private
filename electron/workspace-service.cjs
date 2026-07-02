@@ -580,6 +580,8 @@ class WorkspaceService {
       domain: String(skill.domain || '通用').trim(),
       version: String(skill.version || '1.0').trim(),
       content: String(skill.content || '').trim(),
+      capabilities: skill.capabilities || existing?.capabilities || undefined,
+      agentSkillMapping: skill.agentSkillMapping || existing?.agentSkillMapping || undefined,
       createdAt: existing?.createdAt || now,
       updatedAt: now,
       sourceTaskId: skill.sourceTaskId || existing?.sourceTaskId || null,
@@ -606,7 +608,7 @@ class WorkspaceService {
    * @returns {string}
    */
   static formatSkillMarkdown(skill) {
-    return [
+    const lines = [
       `---`,
       `id: ${skill.id}`,
       `name: ${skill.name}`,
@@ -615,11 +617,24 @@ class WorkspaceService {
       `version: ${skill.version}`,
       `createdAt: ${skill.createdAt}`,
       `updatedAt: ${skill.updatedAt}`,
-      `${skill.sourceTaskId ? `sourceTaskId: ${skill.sourceTaskId}` : ''}`,
-      `---`,
-      '',
-      skill.content || '',
-    ].filter(l => l !== '').join('\n');
+    ];
+    if (skill.sourceTaskId) lines.push(`sourceTaskId: ${skill.sourceTaskId}`);
+    if (skill.capabilities && Array.isArray(skill.capabilities) && skill.capabilities.length > 0) {
+      lines.push('capabilities:');
+      for (const cap of skill.capabilities) {
+        lines.push(`  - id: ${cap.id}`);
+        lines.push(`    label: ${cap.label}`);
+        lines.push(`    description: ${cap.description}`);
+      }
+    }
+    if (skill.agentSkillMapping && typeof skill.agentSkillMapping === 'object' && Object.keys(skill.agentSkillMapping).length > 0) {
+      lines.push('agentSkillMapping:');
+      for (const [agent, skillId] of Object.entries(skill.agentSkillMapping)) {
+        lines.push(`  ${agent}: ${skillId}`);
+      }
+    }
+    lines.push('---', '', skill.content || '');
+    return lines.join('\n');
   }
 
   /**
@@ -631,20 +646,56 @@ class WorkspaceService {
   static parseSkillContent(content, fileName) {
     const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
     if (!match) {
-      // Legacy: no frontmatter, treat all as content
       const name = fileName.replace(/\.md$/i, '');
       return { id: name, name, description: '', domain: '通用', version: '1.0', content, createdAt: '', updatedAt: '' };
     }
     const frontmatter = match[1];
     const body = match[2] || '';
     const parsed = {};
+    const capabilities = [];
+    const agentSkillMapping = {};
+    let currentArrayKey = null;
+    let currentObjectKey = null;
+    let currentCap = {};
+
     for (const line of frontmatter.split('\n')) {
-      const colonIdx = line.indexOf(':');
-      if (colonIdx === -1) continue;
-      const key = line.slice(0, colonIdx).trim();
-      const value = line.slice(colonIdx + 1).trim();
-      parsed[key] = value;
+      const trimmed = line.trim();
+      // Nested array item: "  - id: xxx" or "    label: xxx"
+      if (currentArrayKey === 'capabilities' && trimmed.startsWith('- id:')) {
+        if (currentCap.id) capabilities.push({ ...currentCap });
+        currentCap = { id: trimmed.slice(5).trim() };
+      } else if (currentArrayKey === 'capabilities' && trimmed.startsWith('label:')) {
+        currentCap.label = trimmed.slice(6).trim();
+      } else if (currentArrayKey === 'capabilities' && trimmed.startsWith('description:')) {
+        currentCap.description = trimmed.slice(12).trim();
+      } else if (currentObjectKey === 'agentSkillMapping' && trimmed.includes(':')) {
+        const colonIdx = trimmed.indexOf(':');
+        const key = trimmed.slice(0, colonIdx).trim();
+        const value = trimmed.slice(colonIdx + 1).trim();
+        if (key && value) agentSkillMapping[key] = value;
+      } else if (trimmed === 'capabilities:') {
+        if (currentCap.id) capabilities.push({ ...currentCap });
+        currentCap = {};
+        currentArrayKey = 'capabilities';
+        currentObjectKey = null;
+      } else if (trimmed === 'agentSkillMapping:') {
+        if (currentCap.id) capabilities.push({ ...currentCap });
+        currentCap = {};
+        currentArrayKey = null;
+        currentObjectKey = 'agentSkillMapping';
+      } else {
+        if (currentCap.id) capabilities.push({ ...currentCap });
+        currentCap = {};
+        currentArrayKey = null;
+        currentObjectKey = null;
+        const colonIdx = trimmed.indexOf(':');
+        if (colonIdx !== -1) {
+          parsed[trimmed.slice(0, colonIdx).trim()] = trimmed.slice(colonIdx + 1).trim();
+        }
+      }
     }
+    if (currentCap.id) capabilities.push({ ...currentCap });
+
     return {
       id: parsed.id || fileName.replace(/\.md$/i, ''),
       name: parsed.name || parsed.id || fileName.replace(/\.md$/i, ''),
@@ -654,6 +705,8 @@ class WorkspaceService {
       createdAt: parsed.createdAt || '',
       updatedAt: parsed.updatedAt || '',
       sourceTaskId: parsed.sourceTaskId || undefined,
+      capabilities: capabilities.length > 0 ? capabilities : undefined,
+      agentSkillMapping: Object.keys(agentSkillMapping).length > 0 ? agentSkillMapping : undefined,
       content: body.trim(),
     };
   }
@@ -976,18 +1029,70 @@ class WorkspaceService {
     // Read associated domain skill
     const skillAssoc = this._readTaskSkill(taskId);
     const activeSkill = skillAssoc?.skillId ? this._readSkillFileByName(skillAssoc.skillId) : null;
-    const skillBlock = activeSkill ? [
-      '',
-      `## S. 当前任务关联的领域Skill: ${activeSkill.name}`,
-      `- Skill ID: ${activeSkill.id}`,
-      `- 领域: ${activeSkill.domain}  |  版本: ${activeSkill.version}`,
-      `- ${activeSkill.description}`,
-      '',
-      '### Skill定义（分析框架与规则）',
-      activeSkill.content,
-      '',
-      '> 调度指令中给出的规则优先于Skill中的默认规则。Skill提供框架和标准，不替代证据核验与创造性洞察。',
-    ] : [];
+    const skillBlock = activeSkill ? (() => {
+      const lines = ['', `## S. 领域Skill: ${activeSkill.name}（${activeSkill.domain} v${activeSkill.version}）`, '', `> ${activeSkill.description}`, ''];
+      // Capability declarations
+      if (activeSkill.capabilities && activeSkill.capabilities.length > 0) {
+        lines.push('### 能力声明', '');
+        lines.push('本Skill声明的分析能力（请根据你的能力集匹配执行）：', '');
+        for (const cap of activeSkill.capabilities) {
+          lines.push(`- [**${cap.label}**] ${cap.description}`);
+        }
+        lines.push('');
+      }
+      // Agent Skill mapping hints
+      if (activeSkill.agentSkillMapping && typeof activeSkill.agentSkillMapping === 'object') {
+        const entries = Object.entries(activeSkill.agentSkillMapping);
+        if (entries.length > 0) {
+          lines.push('### Agent Skill 激活提示', '');
+          for (const [agent, skillId] of entries) {
+            lines.push(`- 如果你使用 **${agent}**：请优先加载 \`${skillId}\` Skill 以获取本领域的专项分析能力。`);
+          }
+          lines.push('');
+        }
+      }
+      // Structured instructions
+      lines.push('### 必须执行的分析步骤与验证检查', '');
+      // Parse skill content: extract checkboxes, numbered lists, and sections
+      const content = activeSkill.content || '';
+      // Try to extract structured items from markdown content
+      const checkItems = [];
+      const listItems = [];
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('- [ ]') || trimmed.startsWith('- [x]') || trimmed.startsWith('- [X]')) {
+          checkItems.push(trimmed.replace(/^- \[[ xX]\] /, ''));
+        } else if (trimmed.match(/^\d+\.\s/)) {
+          listItems.push(trimmed.replace(/^\d+\.\s/, ''));
+        }
+      }
+      if (checkItems.length > 0) {
+        lines.push('**验证检查（必须逐项确认）：**', '');
+        for (let i = 0; i < checkItems.length; i++) {
+          lines.push(`- [ ] ${checkItems[i]}`);
+        }
+        lines.push('');
+      }
+      if (listItems.length > 0) {
+        lines.push('**分析步骤（按顺序执行）：**', '');
+        for (let i = 0; i < listItems.length; i++) {
+          lines.push(`${i + 1}. ${listItems[i]}`);
+        }
+        lines.push('');
+      }
+      // If skill content doesn't have structured items, include the full content
+      if (checkItems.length === 0 && listItems.length === 0) {
+        lines.push('**Skill全文参考（请提取其中的分析步骤、验证规则和输出标准并严格遵循）：**', '');
+        lines.push(content);
+        lines.push('');
+      } else {
+        lines.push('**Skill全文参考（供补充细节）：**', '');
+        lines.push(content);
+        lines.push('');
+      }
+      lines.push('> 调度指令中给出的规则优先于Skill中的默认规则。Skill提供框架和标准，不替代证据核验。');
+      return lines;
+    })() : [];
 
     const kindConfig = {
       analysis: { label: '首次分析', output: path.join(outputsPath, `${safeTitle}_首次分析.md`) },
