@@ -330,6 +330,16 @@ IPC_HANDLERS['skill:get-task'] = async (_event, taskId) => {
   try { return asResult(workspaceService._readTaskSkill(taskId)); } catch (e) { return asError(e); }
 };
 
+IPC_HANDLERS['skill:generate-dispatch'] = async (_event, taskId, skillDraft) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try { return asResult(workspaceService.generateSkillDispatch(taskId, skillDraft)); } catch (e) { return asError(e); }
+};
+
+IPC_HANDLERS['skill:save-precipitated'] = async (_event, taskId, skillContent) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try { return asResult(workspaceService.savePrecipitatedSkill(taskId, skillContent)); } catch (e) { return asError(e); }
+};
+
 // Dispatch & Receipt
 IPC_HANDLERS['dispatch:write'] = async (_event, taskId, dispatchData) => {
   if (!workspaceService) return asError(new Error('Workspace not initialized'));

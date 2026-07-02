@@ -166,7 +166,8 @@ export interface WorkbenchApi {
   saveSkill(skill: DomainSkill): Promise<DomainSkill>;
   deleteSkill(skillId: string): Promise<void>;
   setTaskSkill(taskId: string, skillId: string | null): Promise<TaskDetail>;
-  precipitateSkill(taskId: string, skillDraft: { name: string; description: string; domain: string }): Promise<DomainSkill>;
+  precipitateSkill(taskId: string, skillDraft: { name: string; description: string; domain: string }): Promise<{ prompt: string }>;
+  savePrecipitatedSkill(taskId: string, skillContent: string): Promise<DomainSkill>;
 }
 
 declare global {

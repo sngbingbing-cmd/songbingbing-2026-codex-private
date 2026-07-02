@@ -74,14 +74,12 @@ const mockApi: WorkbenchApi = {
   },
   async precipitateSkill(taskId, skillDraft) {
     await wait(400);
-    const skillId = `${skillDraft.name.replace(/[\\/:*?"<>|]/g, '-')}-${Date.now().toString(36)}`;
-    const skill: DomainSkill = {
-      id: skillId, name: skillDraft.name, description: skillDraft.description || '',
-      domain: skillDraft.domain || '通用', version: '1.0',
-      content: `# ${skillDraft.name}\n\n## 沉淀来源\n- 任务：${taskId}\n- 沉淀时间：${new Date().toISOString()}\n\n## 分析框架（从本次分析中提取）\n\n> 以下框架应基于实际分析输出内容提取，当前为示例占位。\n\n## 验证规则\n\n> 请从验证清单中补充校验规则。\n\n## 输出标准\n\n> 请补充输出格式要求。`,
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-      sourceTaskId: taskId,
-    };
+    return { prompt: `# Skill 提炼调度单\n\n## 目标\n从任务输出中提炼领域Skill\n\n## 输出格式\n\n（模拟提炼调度单，实际应用中会包含任务上下文材料）` };
+  },
+  async savePrecipitatedSkill(taskId, skillContent) {
+    await wait(400);
+    const parsed = { id: `skill-${Date.now().toString(36)}`, name: '新Skill', description: '', domain: '通用', version: '1.0', content: skillContent };
+    const skill: DomainSkill = { ...parsed, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), sourceTaskId: taskId };
     mockSkills.push(skill);
     return structuredClone(skill);
   },

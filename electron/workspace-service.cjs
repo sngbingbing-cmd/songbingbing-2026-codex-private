@@ -755,6 +755,156 @@ class WorkspaceService {
     return this._readJson(TASKS_DIR, taskId, 'skill.json');
   }
 
+  /**
+   * Generate a Skill refinement dispatch prompt with full task context.
+   * External AI Agent reads this and returns a formatted Skill markdown.
+   * @param {string} taskId
+   * @param {object} skillDraft - { name, description, domain }
+   * @returns {{ prompt: string }}
+   */
+  generateSkillDispatch(taskId, skillDraft) {
+    const task = this.getTask(taskId);
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    const taskRoot = this.resolvePath(TASKS_DIR, taskId);
+    
+    // Collect all relevant task materials
+    const materials = [];
+    
+    // 1. Task metadata
+    materials.push(`## 任务信息`, `- 名称: ${task.title}`, `- 类型: ${task.taskType}`, `- 描述: ${task.description || '无'}`, '');
+    
+    // 2. Analysis outputs
+    const outputMdFiles = [];
+    try {
+      const outputEntries = fs.readdirSync(path.join(taskRoot, 'outputs'), { withFileTypes: true }).filter((e) => e.isFile() && e.name.endsWith('.md'));
+      for (const entry of outputEntries) {
+        const content = fs.readFileSync(path.join(taskRoot, 'outputs', entry.name), 'utf8');
+        // Truncate to ~3000 chars to fit in dispatch context
+        const truncated = content.length > 3000 ? content.slice(0, 3000) + '\n\n...（已截断，完整内容见 outputs 目录）' : content;
+        materials.push(`## 分析输出: ${entry.name}`, truncated, '');
+      }
+    } catch { /* no outputs */ }
+    
+    // 3. Four-piece documents
+    for (const docName of ['分析请求.md', '来源清单.md', '口径映射.md', '验证清单.md']) {
+      try {
+        const docPath = path.join(taskRoot, docName);
+        if (fs.existsSync(docPath)) {
+          const content = fs.readFileSync(docPath, 'utf8');
+          const truncated = content.length > 2000 ? content.slice(0, 2000) + '\n\n...（已截断）' : content;
+          materials.push(`## ${docName}`, truncated, '');
+        }
+      } catch { /* skip missing */ }
+    }
+    
+    // 4. Validation feedback
+    try {
+      const valDir = path.join(taskRoot, 'validation');
+      if (fs.existsSync(valDir)) {
+        const valFiles = fs.readdirSync(valDir, { withFileTypes: true }).filter((e) => e.isFile() && e.name.startsWith('feedback-'));
+        for (const entry of valFiles.slice(0, 3)) {
+          const content = fs.readFileSync(path.join(valDir, entry.name), 'utf8');
+          materials.push(`## 验证反馈: ${entry.name}`, content.slice(0, 1500), '');
+        }
+      }
+    } catch { /* no validation */ }
+
+    // 5. Existing skills (as reference)
+    try {
+      const existingSkills = this.listSkills();
+      if (existingSkills.length > 0) {
+        materials.push('## 已有Skill（供参考，避免重复）');
+        for (const s of existingSkills) {
+          materials.push(`- ${s.name}（${s.domain}）: ${s.description}`);
+        }
+        materials.push('');
+      }
+    } catch { /* no skills */ }
+
+    const prompt = [
+      `# Skill 提炼任务`,
+      ``,
+      `## 目标`,
+      `从以下分析任务的完整材料中，提炼可复用的领域分析方法，生成一份领域Skill文件。`,
+      ``,
+      `## 输出要求`,
+      `请严格按照以下格式输出（YAML frontmatter + Markdown body）：`,
+      ``,
+      `\`\`\``,
+      `---`,
+      `id: ${skillDraft.name ? skillDraft.name.replace(/[\\/:*?"<>|]/g, '-') : 'new-skill'}`,
+      `name: ${skillDraft.name || '新Skill'}`,
+      `description: ${skillDraft.description || '（请补充这个Skill的一句话用途）'}`,
+      `domain: ${skillDraft.domain || '通用'}`,
+      `version: 1.0`,
+      `createdAt: （当前时间）`,
+      `---`,
+      ``,
+      `# Skill名称`,
+      ``,
+      `## 分析框架（从本次分析中提炼的实际方法路径）`,
+      ``,
+      `（按实际分析中经过验证的方法路径填写）`,
+      ``,
+      `## 验证规则（实际使用过的校验规则）`,
+      ``,
+      `（从验证清单中提取，标注每条规则的来源）`,
+      ``,
+      `## 关键口径（实际使用并确认的口径定义）`,
+      ``,
+      `（从口径映射表中提取标准化口径）`,
+      ``,
+      `## 输出标准（实际输出中验证有效的格式要求）`,
+      ``,
+      `（从实际输出中总结的报告标准）`,
+      `\`\`\``,
+      ``,
+      `## 提炼要点`,
+      `1. **只提取本次分析中实际使用过的、被验证为有效的方法**。不要虚构或推测。`,
+      `2. 每条验证规则应能找到在验证清单或反馈中的来源。`,
+      `3. 口径定义必须与口径映射表一致，不能自行修改。`,
+      `4. 分析框架应按"输入→处理→输出"的逻辑顺序组织。`,
+      `5. 输出必须是完整的YAML+Markdown格式，可直接写入 03-领域分析Skills/ 目录。`,
+      ``,
+      ...materials,
+    ].join('\n');
+
+    return { prompt };
+  }
+
+  /**
+   * Parse AI-returned skill content and save as a new skill file.
+   * @param {string} taskId
+   * @param {string} skillContent - AI-returned YAML frontmatter + Markdown body
+   * @returns {object}
+   */
+  savePrecipitatedSkill(taskId, skillContent) {
+    if (!skillContent || typeof skillContent !== 'string') throw new Error('Skill content is required');
+    const task = this.getTask(taskId);
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+
+    // Parse the content
+    const parsed = WorkspaceService.parseSkillContent(skillContent, 'precipitated.md');
+    if (!parsed || !parsed.id) throw new Error('无法解析Skill内容，请确保包含 YAML frontmatter（id/name 字段）');
+
+    // Enrich with precipitation metadata
+    const now = new Date().toISOString();
+    const skill = {
+      ...parsed,
+      id: String(parsed.id).replace(/[\\/:*?"<>|]/g, '-'),
+      name: parsed.name || parsed.id,
+      description: parsed.description || '',
+      domain: parsed.domain || '通用',
+      version: parsed.version || '1.0',
+      sourceTaskId: taskId,
+      createdAt: parsed.createdAt || now,
+      updatedAt: now,
+    };
+
+    this._writeSkillFile(skill);
+    return skill;
+  }
+
   // ── External source management ────────────────────────────────────
 
   /**

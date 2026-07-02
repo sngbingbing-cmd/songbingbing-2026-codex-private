@@ -353,17 +353,36 @@ function DeliveryStage({ task, refresh, notify }: { task: TaskDetail; refresh: (
   const [wordBusy, setWordBusy] = useState(false);
   const [preview, setPreview] = useState<{ name: string; content: string } | null>(null);
   const [promptPreview, setPromptPreview] = useState("");
+  const [skillMode, setSkillMode] = useState<"idle" | "dispatching" | "pasting">("idle");
+  const [skillName, setSkillName] = useState("");
+  const [skillDomain, setSkillDomain] = useState("经营分析");
+  const [skillPaste, setSkillPaste] = useState("");
   const generate = async (kind: "html") => { const prompt = await api.generatePrompt(task.id, kind); setPromptPreview(prompt); try { await navigator.clipboard.writeText(prompt); notify(kind === "html" ? "HTML报告调度单已复制并显示预览" : ""); } catch { notify("已显示预览，可点击预览区再次复制"); } };
   const generateWord = async () => { setWordBusy(true); try { const result = await api.generateWordReport(task.id); refresh(result.task); notify(`Word 已生成：${result.outputName}`); await api.revealPath(result.outputPath); } catch (error: any) { notify(error.message || "Word 生成失败"); } finally { setWordBusy(false); } };
-  const precipitateSkill = async () => {
+  const startPrecipitate = () => setSkillMode("dispatching");
+  const doPrecipitate = async () => {
     try {
-      const skill = await api.precipitateSkill(task.id, { name: task.name, description: "从本次分析中提炼的可复用方法", domain: "经营分析" });
-      notify(`领域Skill已沉淀：${skill.name}，并已关联到当前任务`);
-      refresh(await api.getTask(task.id));
-    } catch (error: any) { notify(error.message || "沉淀失败"); }
+      const name = skillName.trim() || task.name;
+      const result = await api.precipitateSkill(task.id, { name, description: "从本次分析提炼的可复用方法", domain: skillDomain });
+      setPromptPreview(result.prompt);
+      notify("提炼调度单已生成，复制后交给外部 AI Agent 执行");
+      setSkillMode("pasting");
+    } catch (error: any) { notify(error.message || "生成调度单失败"); setSkillMode("idle"); }
   };
+  const doSavePrecipitated = async () => {
+    try {
+      if (!skillPaste.trim()) { notify("请粘贴 AI 返回的 Skill 内容"); return; }
+      const saved = await api.savePrecipitatedSkill(task.id, skillPaste);
+      notify(`领域Skill已沉淀：${saved.name}，并已关联到当前任务`);
+      refresh(await api.getTask(task.id));
+      setSkillMode("idle"); setSkillPaste(""); setSkillName(""); setPromptPreview("");
+    } catch (error: any) { notify(error.message || "保存失败"); }
+  };
+  const cancelSkill = () => { setSkillMode("idle"); setSkillPaste(""); setPromptPreview(""); };
   const openOutput = async (file: FileEntry) => { if (file.type === "md") { setPreview({ name: file.name, content: await api.readFile(file.path) }); } else await api.revealPath(file.path); };
-  return <div className="delivery-stage"><div className="delivery-layout"><section className="work-section"><header><div><h2>正式输出</h2><span>{task.outputs.length} 个文件</span></div><div className="inline-actions"><AppButton icon={<ArrowClockwise size={16} />} onClick={async () => refresh(await api.getTask(task.id))}>刷新</AppButton><AppButton icon={<FolderOpen size={16} />} onClick={() => api.revealPath(`${task.path}/outputs`)}>打开目录</AppButton></div></header><div className="output-list">{task.outputs.map((file) => <button key={file.path} onClick={() => openOutput(file)}><IconForFile file={file} /><span><strong>{file.name}</strong><small>{file.type === "md" ? "点击应用内预览" : "点击在系统中打开"} · {file.sizeKb} KB</small></span><CaretRight size={15} /></button>)}{!task.outputs.length ? <div className="output-empty">目录中暂无正式输出。请先在 03 完成分析并生成 Markdown 报告。</div> : null}</div></section><section className="work-section"><header><div><h2>交付工具</h2><span>应用内转换会直接写入 outputs</span></div></header><button className="command-row" onClick={generateWord} disabled={wordBusy}><FileDoc size={21} />{wordBusy ? <span><strong>正在生成 Word…</strong><small>读取最新 Markdown 正式报告</small></span> : <span><strong>直接生成 Word 报告</strong><small>从 outputs 中最新的 .md 报告生成 .docx</small></span>}<CaretRight size={15} /></button><button className="command-row" onClick={() => generate("html")}><SquaresFour size={21} /><span><strong>生成 HTML 报告调度单</strong><small>复制调度单，交给外部 Agent 生成（预览在下方）</small></span><CaretRight size={15} /></button><button className="command-row" onClick={precipitateSkill}><Robot size={21} /><span><strong>沉淀领域 Skill</strong><small>从本次分析提炼方法，写入 03-领域分析Skills/，并关联当前任务</small></span><CaretRight size={15} /></button></section></div>{promptPreview ? <PromptPreviewPanel content={promptPreview} source="copy" onClose={() => setPromptPreview("")} /> : null}{preview ? <section className="markdown-preview"><header><div><h2>Markdown 输出预览</h2><span>{preview.name}</span></div><AppButton onClick={() => setPreview(null)}>关闭预览</AppButton></header><article>{preview.content}</article></section> : null}</div>;
+  return <div className="delivery-stage"><div className="delivery-layout"><section className="work-section"><header><div><h2>正式输出</h2><span>{task.outputs.length} 个文件</span></div><div className="inline-actions"><AppButton icon={<ArrowClockwise size={16} />} onClick={async () => refresh(await api.getTask(task.id))}>刷新</AppButton><AppButton icon={<FolderOpen size={16} />} onClick={() => api.revealPath(`${task.path}/outputs`)}>打开目录</AppButton></div></header><div className="output-list">{task.outputs.map((file) => <button key={file.path} onClick={() => openOutput(file)}><IconForFile file={file} /><span><strong>{file.name}</strong><small>{file.type === "md" ? "点击应用内预览" : "点击在系统中打开"} · {file.sizeKb} KB</small></span><CaretRight size={15} /></button>)}{!task.outputs.length ? <div className="output-empty">目录中暂无正式输出。请先在 03 完成分析并生成 Markdown 报告。</div> : null}</div></section><section className="work-section"><header><div><h2>交付工具</h2><span>应用内转换会直接写入 outputs</span></div></header><button className="command-row" onClick={generateWord} disabled={wordBusy}><FileDoc size={21} />{wordBusy ? <span><strong>正在生成 Word…</strong><small>读取最新 Markdown 正式报告</small></span> : <span><strong>直接生成 Word 报告</strong><small>从 outputs 中最新的 .md 报告生成 .docx</small></span>}<CaretRight size={15} /></button><button className="command-row" onClick={() => generate("html")}><SquaresFour size={21} /><span><strong>生成 HTML 报告调度单</strong><small>复制调度单，交给外部 Agent 生成（预览在下方）</small></span><CaretRight size={15} /></button><button className="command-row" onClick={startPrecipitate}><Robot size={21} /><span><strong>沉淀领域 Skill</strong><small>生成提炼调度单 → AI 提炼 → 粘贴确认写入</small></span><CaretRight size={15} /></button></section></div>
+    {skillMode !== "idle" ? <section className="skill-precipitate-panel"><header><div><strong>Skill 沉淀</strong><span>{skillMode === "dispatching" ? "步骤1：输入基本信息 → 生成提炼调度单" : "步骤2：粘贴 AI 返回的结果 → 确认写入"}</span></div><AppButton onClick={cancelSkill}>取消</AppButton></header><div className="skill-precipitate-body">{skillMode === "dispatching" ? <><div className="skill-draft-fields"><label>Skill 名称<input value={skillName} onChange={(e) => setSkillName(e.target.value)} placeholder={task.name} /></label><label>领域分类<input value={skillDomain} onChange={(e) => setSkillDomain(e.target.value)} placeholder="经营分析" /></label></div><p className="skill-dispatch-hint">提炼调度单将包含：分析报告摘要、验证清单、口径映射、验证反馈。</p><AppButton tone="primary" icon={<Robot size={16} />} onClick={doPrecipitate}>生成提炼调度单</AppButton></> : <><PromptPreviewPanel content={promptPreview} source="copy" onClose={() => setPromptPreview("")} /><div className="skill-paste-area"><label>粘贴 AI Agent 返回的 Skill 内容（YAML + Markdown）<textarea value={skillPaste} onChange={(e) => setSkillPaste(e.target.value)} placeholder="将外部 AI Agent 返回的内容粘贴到这里…" rows={8} /></label><AppButton tone="primary" disabled={!skillPaste.trim()} onClick={doSavePrecipitated}>确认写入 03-领域分析Skills/</AppButton></div></>}</div></section> : null}
+    {promptPreview && skillMode === "idle" ? <PromptPreviewPanel content={promptPreview} source="copy" onClose={() => setPromptPreview("")} /> : null}{preview ? <section className="markdown-preview"><header><div><h2>Markdown 输出预览</h2><span>{preview.name}</span></div><AppButton onClick={() => setPreview(null)}>关闭预览</AppButton></header><article>{preview.content}</article></section> : null}</div>;
 }
 
 function EvaluationStage({ task, refresh, notify }: { task: TaskDetail; refresh: (task: TaskDetail) => void; notify: (m: string) => void }) {
