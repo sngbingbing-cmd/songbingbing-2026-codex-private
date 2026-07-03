@@ -151,3 +151,66 @@
 - 增加 NSIS 安装器、便携 ZIP、桌面/开始菜单快捷方式和可选安装目录。
 - CI 扩展为 macOS/Windows 双平台；Release 由两个原生 Runner 构建后统一发布。
 - Windows 安装包暂未进行 Authenticode 签名，首次安装可能触发 SmartScreen 提示。
+
+## v2.0.0 - 2026-07-03
+
+作者：宋冰冰 & ZCode（13号）
+
+### 定位
+
+全工作台前端的全面功能性审查、逻辑性审查与提示词内容深度审查。修复崩溃/安全/功能假/流程断裂/流程噪音（32项），完成 App.tsx 架构拆分。
+
+### 审查发现摘要
+
+- **P0 崩溃**：FormalView / IncompleteBar 违反 React Hooks 规则 → 切换语义文件或完善条目时白屏
+- **P1 功能假**：⌘K 搜索无实现、拖拽上传无实现、语义冲突数恒为0、输入就绪度硬编码、侧栏收起无功能
+- **提示词 7 个硬伤**：回执契约不一致、正式语义只给摘要不给全文、外部资料只给统计不给清单、重分析不带变更信息、评测标准未量化、执行原则不分 kind、待确认候选不告知 AI
+
+### 完成
+
+#### 提示词内容修订（7项）
+- P-A：AI 直连 receipt 写入 `unresolved` 数组，回执契约前后端统一
+- P-B：正式语义表全文注入提示词，AI 获得真实口径定义
+- P-C：外部资料目录注入递归文件清单（从已持久化 inventory 读取），避免 AI 重新扫描
+- P-D：重分析提示词列出新增反馈文件名，AI 知道哪些东西变了
+- P-E：评测标准量化（5维度分项计分 + 80/60 分档判定）
+- P-F：执行原则按 6 种 kind 分化，不再一刀切
+- P-G：待确认语义候选列表注入提示词，标注"勿重复提出"
+
+#### 迭代一：稳定性急救（7项）
+- FormalView / IncompleteBar Hooks 顺序修复 → 消除白屏崩溃
+- notify 定时器改用 useRef → 连续提示不覆盖、卸载时清理
+- Windows checkInstallation 改用 spawnSync → 不再永远返回 true
+- permissionMode 默认 `acceptEdits` + 白名单化 → 不再默认 bypassPermissions
+- dangerouslySetInnerHTML 增加 escapeHtml → 消除 XSS 风险
+- Toast 区分 success/error/info → 错误提示不再显现绿色对勾
+
+#### 迭代二：功能补全（10项）
+- ⌘K 全局搜索：快捷键注册 + 搜索结果下拉（任务/文件/语义三类）
+- 拖拽上传：dropzone 接入 onDrop + dragFiles API
+- semanticConflicts 真实化：扫描语义层检测同名不同义/重复定义
+- 输入就绪度真实化：基于 raw/requiredDocs/outputs/evaluation 实算
+- TaskHeader 下一步建议智能化：按 stage/status/validation 动态生成
+- 侧栏收起、任务列表展开全部
+- AI 事件加 timestamp（事件源头写入，面板按实际时间显示）
+- mock fallback 提示横幅、"演示模式"可视化提醒
+- NewTaskModal 创建中禁用关闭
+
+#### 迭代三：流程逻辑理顺（4项）
+- 阶段软门控：预查条件不满足时给提示，不阻塞操作
+- dispatch 后端归档保护：写 dispatch.json 前自动归档旧记录到 dispatch-history/
+- HTML 报告支持 ✨直接执行（至此 03/04/05/06/07 全部对称）
+- 语义 append 列一致性校验：title 为空或 proposed 为空时拒绝写入
+
+#### 迭代四：架构重构与测试（4项）
+- App.tsx 从 827 行拆为 105 行 + 6 个组件文件（ui / navigation / stages / ai-execution / semantic-center / shared-panes）
+- AI 监听器按引用移除：onAiEvent 返回 unsubscribe，消除竞态风险
+- Word 导出中文字体：正文微软雅黑、标题黑体，告别 Arial 中文乱排
+- 新增 11 项核心流程测试（阶段持久化、dispatch 归档、语义列校验、提示词改进）
+
+### 验证
+
+- TypeScript 类型检查通过
+- 123 项 node 测试 + 22 项 vitest 测试全部通过（总计 145 项）
+- 生产构建通过
+- 版本号：v1.1.19 → v2.0.0

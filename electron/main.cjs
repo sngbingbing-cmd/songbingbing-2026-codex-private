@@ -1,10 +1,4 @@
-const {
-  app,
-  BrowserWindow,
-  ipcMain,
-  dialog,
-  shell,
-} = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const log = require('electron-log');
 const { WorkspaceService } = require('./workspace-service.cjs');
@@ -18,7 +12,9 @@ log.info('App starting...');
 let mainWindow = null;
 let workspaceService = null;
 let autoUpdater = null;
-const IS_DEV = !app.isPackaged;
+// IS_DEV is computed lazily inside app.whenReady() to avoid
+// require('electron') returning the npm package (string) at module load time.
+let IS_DEV = false;
 const WS_NAMESPACE = 'ws';
 const WS_READY_EVENT = `${WS_NAMESPACE}:ready`;
 
@@ -168,6 +164,15 @@ IPC_HANDLERS['task:archive'] = async (_event, taskId) => {
   }
 };
 
+IPC_HANDLERS['task:stage'] = async (_event, taskId, stage) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  try {
+    return asResult(workspaceService.updateTask(taskId, { stage }));
+  } catch (e) {
+    return asError(e);
+  }
+};
+
 // Files
 IPC_HANDLERS['file:select'] = async (_event, options) => {
   const props = [options?.directories ? 'openDirectory' : 'openFile'];
@@ -192,11 +197,14 @@ IPC_HANDLERS['file:copy'] = async (_event, sourcePath, relativeDestPath) => {
 
 IPC_HANDLERS['file:sync'] = async (_event, sourcePaths, targetDir) => {
   if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  if (!targetDir || typeof targetDir !== 'string') {
+    return asError(new Error('targetDir is required — refusing to sync to workspace root'));
+  }
   try {
     const results = [];
     for (const src of sourcePaths) {
       const fileName = path.basename(src);
-      const dest = path.join(targetDir || '01-投喂区', fileName);
+      const dest = path.join(targetDir, fileName);
       results.push(workspaceService.copyFile(src, dest));
     }
     return asResult(results);
@@ -561,6 +569,9 @@ function setupAutoUpdater() {
 // ── App lifecycle ─────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  // Compute IS_DEV now that require('electron') returns the real object
+  IS_DEV = !app.isPackaged;
+  log.info(`[main] IS_DEV = ${IS_DEV}`);
   createWindow();
   registerIpcHandlers();
   setupAutoUpdater();

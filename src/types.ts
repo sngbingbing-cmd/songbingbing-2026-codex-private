@@ -1,6 +1,7 @@
 export type StageId = "overview" | "data" | "analysis" | "four-piece" | "validation" | "delivery" | "evaluation";
 export type GlobalView = "tasks" | "semantic" | "evaluation" | "settings";
 export type StatusTone = "ok" | "warning" | "danger" | "muted" | "active";
+export type ToastTone = "success" | "error" | "info";
 export type PromptKind = "analysis" | "reanalysis" | "four-piece" | "evaluation" | "html" | "skill";
 
 export interface FileEntry {
@@ -115,6 +116,7 @@ export interface AIStreamEvent {
   subtype?: string | null; // "started" | "cancelled" etc.
   content: string;
   toolName?: string | null;
+  timestamp?: string;    // ISO-8601, set by ai-executor when event is emitted
 }
 
 export interface AIExecutionResult {
@@ -156,8 +158,10 @@ export interface WorkbenchApi {
   selectWorkspace(): Promise<AppSnapshot | null>;
   createTask(name: string): Promise<TaskDetail>;
   getTask(id: string): Promise<TaskDetail>;
+  updateTaskStage(id: string, stage: StageId): Promise<void>;
   archiveTask(id: string, archived: boolean): Promise<void>;
   pickFiles(id: string, zone: "inbox" | "raw" | "validation" | "notes/four-piece-support"): Promise<TaskDetail>;
+  dragFiles(id: string, zone: string, filePaths: string[]): Promise<TaskDetail>;
   syncFiles(id: string): Promise<TaskDetail>;
   readFile(path: string): Promise<string>;
   saveFile(path: string, content: string): Promise<void>;
@@ -196,9 +200,9 @@ export interface WorkbenchApi {
   checkAiInstallation(): Promise<AIInstallationInfo>;
   executeAiAnalysis(taskId: string, prompt: string, options?: Record<string, unknown>): Promise<{ started: boolean; taskId: string }>;
   cancelAiExecution(): Promise<{ cancelled: boolean; taskId?: string }>;
-  onAiEvent(callback: (event: AIStreamEvent) => void): void;
-  onAiComplete(callback: (result: AIExecutionResult) => void): void;
-  onAiError(callback: (error: { taskId: string; error: string; stderr?: string; partialOutput?: string }) => void): void;
+  onAiEvent(callback: (event: AIStreamEvent) => void): () => void;
+  onAiComplete(callback: (result: AIExecutionResult) => void): () => void;
+  onAiError(callback: (error: { taskId: string; error: string; stderr?: string; partialOutput?: string }) => void): () => void;
   removeAiListeners(): void;
 }
 

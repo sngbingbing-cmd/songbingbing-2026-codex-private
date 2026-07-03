@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = module.require('electron');
 const path = require('node:path');
 const { buildValidationItems } = require('./task-detail-helpers.cjs');
 
@@ -11,11 +11,24 @@ async function invoke(channel, ...args) {
 }
 
 function taskStage(task) {
+  // Prefer the explicitly persisted stage from status.json; fall back to
+  // status-derived inference for older tasks that don't have a stage field.
+  if (task.stage) return [task.stage, STAGE_LABELS[task.stage] || task.stage];
   if (task.status === 'archived') return ['delivery', '06 交付'];
   if (task.status === 'review' || task.hasReceipt) return ['validation', '05 验证'];
   if (task.status === 'running' || task.hasDispatch) return ['analysis', '03 分析'];
   return ['data', '02 资料'];
 }
+
+const STAGE_LABELS = {
+  overview: '01 概览',
+  data: '02 资料',
+  analysis: '03 分析',
+  'four-piece': '04 收工补齐',
+  validation: '05 验证',
+  delivery: '06 交付',
+  evaluation: '07 评测',
+};
 
 function taskStatus(task) {
   if (task.status === 'review' || task.hasReceipt) return 'waiting';
@@ -127,11 +140,59 @@ async function getTaskDetail(id) {
     firstRun: { status: task.hasReceipt ? '已完成' : dispatchKind === 'analysis' ? '等待回执' : '未执行', time: receipt?.completedAt || receipt?.updatedAt, receipt: receipt?.summary },
     reanalysis: { status: receiptKind === 'reanalysis' ? '已完成' : dispatchKind === 'reanalysis' ? '等待回执' : '未执行', time: receiptKind === 'reanalysis' ? (receipt?.completedAt || receipt?.updatedAt) : undefined },
     evaluation: persistedEvaluation || receipt?.evaluation || { status: '未评测' },
-    semanticConflicts: 0,
-    domainSkill: task.taskType === 'analysis' ? '通用经营分析' : task.taskType,
+    semanticConflicts: computeSemanticConflicts(),
+    domainSkill: skillAssoc?.skillId ? (skillAssoc.skillId) : (task.taskType || '通用经营分析'),
     skillId: skillAssoc?.skillId || null,
     prompt: '',
   };
+}
+
+/**
+ * Scan the semantic layer for conflicts: duplicate titles within the same
+ * file, or the same title appearing with different definitions across files.
+ * Returns a count of detected conflicts.
+ */
+async function computeSemanticConflicts() {
+  try {
+    const result = await invoke('semantic:read');
+    const files = result['02-权威语义层'] || [];
+    let conflicts = 0;
+    // title → set of definitions seen
+    const titleDefs = new Map();
+    for (const file of files) {
+      if (!file.name.endsWith('.md')) continue;
+      const stored = await invoke('file:read', `02-权威语义层/${file.name}`);
+      const content = stored?.content || '';
+      const lines = content.split('\n');
+      const headerLine = lines.find((l) => /^\s*\|.+\|\s*$/.test(l));
+      if (!headerLine) continue;
+      const colNames = headerLine.split('|').slice(1, -1).map((c) => c.trim());
+      const firstCol = colNames[0];
+      const defCol = colNames[1] || 'proposed';
+      const dataRows = lines.filter((l) => /^\s*\|.+\|\s*$/.test(l) && !/^\|[\s:|-]+\|$/.test(l.trim()));
+      const seen = new Set();
+      for (const row of dataRows) {
+        const cells = row.split('|').slice(1, -1).map((c) => c.trim());
+        const title = cells[0] || '';
+        if (!title || /待确认|待补充|未知|todo/i.test(title)) continue;
+        const def = cells[colNames.indexOf(defCol)] || '';
+        // duplicate within same file
+        if (seen.has(title)) { conflicts++; continue; }
+        seen.add(title);
+        // cross-file conflict: same title, different definition
+        if (titleDefs.has(title)) {
+          const existing = titleDefs.get(title);
+          if (def && !existing.has(def)) conflicts++;
+          existing.add(def);
+        } else {
+          titleDefs.set(title, new Set([def]));
+        }
+      }
+    }
+    return conflicts;
+  } catch {
+    return 0;
+  }
 }
 
 async function semanticSnapshot() {
@@ -210,6 +271,9 @@ const workbench = {
     return getTaskDetail(task.id);
   },
   getTask: getTaskDetail,
+  async updateTaskStage(id, stage) {
+    await invoke('task:stage', id, stage);
+  },
   async archiveTask(id, archived) {
     if (archived) await invoke('task:archive', id);
     else await invoke('task:update', id, { status: 'pending' });
@@ -217,6 +281,10 @@ const workbench = {
   async pickFiles(id, zone) {
     const files = await invoke('file:select', { multi: true });
     if (files.length) await invoke('file:sync', files, `04-分析任务/${id}/${zone}`);
+    return getTaskDetail(id);
+  },
+  async dragFiles(id, zone, filePaths) {
+    if (filePaths && filePaths.length) await invoke('file:sync', filePaths, `04-分析任务/${id}/${zone}`);
     return getTaskDetail(id);
   },
   async syncFiles(id) {
@@ -254,16 +322,38 @@ const workbench = {
     return semanticSnapshot();
   },
   async approveSemanticCandidates(ids, confirmedBy) {
-    for (const id of ids) await invoke('semantic:approve-candidate', id, confirmedBy);
-    return semanticSnapshot();
+    const errors = [];
+    for (const id of ids) {
+      try {
+        await invoke('semantic:approve-candidate', id, confirmedBy);
+      } catch (e) {
+        errors.push(`${id}: ${e.message}`);
+      }
+    }
+    const snapshot = await semanticSnapshot();
+    if (errors.length) {
+      throw new Error(`部分确认失败（${errors.length}/${ids.length}）：\n${errors.join('\n')}`);
+    }
+    return snapshot;
   },
   async rejectSemanticCandidate(id, reason) {
     await invoke('semantic:reject-candidate', id, reason);
     return semanticSnapshot();
   },
   async rejectSemanticCandidates(ids, reason) {
-    for (const id of ids) await invoke('semantic:reject-candidate', id, reason);
-    return semanticSnapshot();
+    const errors = [];
+    for (const id of ids) {
+      try {
+        await invoke('semantic:reject-candidate', id, reason);
+      } catch (e) {
+        errors.push(`${id}: ${e.message}`);
+      }
+    }
+    const snapshot = await semanticSnapshot();
+    if (errors.length) {
+      throw new Error(`部分退回失败（${errors.length}/${ids.length}）：\n${errors.join('\n')}`);
+    }
+    return snapshot;
   },
   async uploadSemanticMaterials() {
     const files = await invoke('file:select', { multi: true });
@@ -383,15 +473,24 @@ const workbench = {
     return invoke('ai:cancel');
   },
   onAiEvent(callback) {
-    ipcRenderer.on('ai:on-event', (_event, data) => callback(data));
+    const wrapper = (_event, data) => callback(data);
+    ipcRenderer.on('ai:on-event', wrapper);
+    return () => ipcRenderer.removeListener('ai:on-event', wrapper);
   },
   onAiComplete(callback) {
-    ipcRenderer.on('ai:on-complete', (_event, data) => callback(data));
+    const wrapper = (_event, data) => callback(data);
+    ipcRenderer.on('ai:on-complete', wrapper);
+    return () => ipcRenderer.removeListener('ai:on-complete', wrapper);
   },
   onAiError(callback) {
-    ipcRenderer.on('ai:on-error', (_event, data) => callback(data));
+    const wrapper = (_event, data) => callback(data);
+    ipcRenderer.on('ai:on-error', wrapper);
+    return () => ipcRenderer.removeListener('ai:on-error', wrapper);
   },
   removeAiListeners() {
+    // Fallback: remove all listeners on all three channels. Used only as a
+    // safety net on unmount; prefer the per-callback unsubscribe returned by
+    // onAiEvent/onAiComplete/onAiError.
     ipcRenderer.removeAllListeners('ai:on-event');
     ipcRenderer.removeAllListeners('ai:on-complete');
     ipcRenderer.removeAllListeners('ai:on-error');

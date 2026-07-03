@@ -18,8 +18,10 @@ const mockApi: WorkbenchApi = {
     return task;
   },
   async getTask(id) { await wait(); return structuredClone(id === mockDetail.id ? mockDetail : { ...mockDetail, ...(snapshot.tasks.find((task) => task.id === id) || {}) }); },
+  async updateTaskStage(_id, _stage) { await wait(); },
   async archiveTask(id, archived) { await wait(); snapshot.tasks = snapshot.tasks.map((task) => task.id === id ? { ...task, archived } : task); },
   async pickFiles(_id, _zone) { await wait(); return structuredClone(mockDetail); },
+  async dragFiles(_id: string, _zone: string, _filePaths: string[]) { await wait(); return structuredClone(mockDetail); },
   async syncFiles(_id) { await wait(); return structuredClone(mockDetail); },
   async readFile(path) { await wait(); return mockDetail.requiredDocs.find((doc) => doc.path === path)?.content || "# 文件预览\n\n当前为浏览器演示数据。"; },
   async saveFile(_path, _content) { await wait(); },
@@ -104,10 +106,11 @@ const mockApi: WorkbenchApi = {
   async checkAiInstallation() { await wait(); return { installed: false, cliPath: null, platform: 'unknown' }; },
   async executeAiAnalysis(_taskId, _prompt, _options) { await wait(); return { started: false, taskId: _taskId }; },
   async cancelAiExecution() { await wait(); return { cancelled: false }; },
-  onAiEvent(_callback: (event: AIStreamEvent) => void) { /* mock: no real events */ },
-  onAiComplete(_callback: (result: AIExecutionResult) => void) { /* mock */ },
-  onAiError(_callback: (error: { taskId: string; error: string; stderr?: string; partialOutput?: string }) => void) { /* mock */ },
+  onAiEvent(_callback: (event: AIStreamEvent) => void) { /* mock: no real events */ return () => {}; },
+  onAiComplete(_callback: (result: AIExecutionResult) => void) { /* mock */ return () => {}; },
+  onAiError(_callback: (error: { taskId: string; error: string; stderr?: string; partialOutput?: string }) => void) { /* mock */ return () => {}; },
   removeAiListeners() { /* mock */ },
 };
 
 export const api: WorkbenchApi = window.workbench || mockApi;
+export const isMockMode: boolean = !window.workbench;

@@ -176,6 +176,7 @@ class WorkspaceService {
       description: status.description || '',
       status: status.status || 'pending',
       taskType: status.taskType || 'analysis',
+      stage: status.stage || null,
       createdAt: status.createdAt || null,
       updatedAt: status.updatedAt || null,
       archivedAt: status.archivedAt || null,
@@ -254,7 +255,7 @@ class WorkspaceService {
     const status = this._readJson(TASKS_DIR, taskId, 'status.json');
     if (!status) throw new Error(`Task not found: ${taskId}`);
 
-    const allowed = ['title', 'description', 'status', 'taskType', 'context'];
+    const allowed = ['title', 'description', 'status', 'taskType', 'context', 'stage'];
     for (const key of Object.keys(updates || {})) {
       if (allowed.includes(key)) {
         status[key] = updates[key];
@@ -304,6 +305,20 @@ class WorkspaceService {
   writeDispatch(taskId, dispatchData) {
     const taskDir = this.resolvePath(TASKS_DIR, taskId);
     if (!fs.existsSync(taskDir)) throw new Error(`Task not found: ${taskId}`);
+
+    // ── Archive previous dispatch before overwriting ──
+    // Preserves execution history so AI direct-execution records aren't
+    // lost when a subsequent external dispatch is registered.
+    const existingPath = path.join(taskDir, 'dispatch.json');
+    if (fs.existsSync(existingPath)) {
+      try {
+        const prev = JSON.parse(fs.readFileSync(existingPath, 'utf-8'));
+        const historyDir = path.join(taskDir, 'dispatch-history');
+        fs.mkdirSync(historyDir, { recursive: true });
+        const ts = (prev.createdAt || new Date().toISOString()).replace(/[:.]/g, '-').slice(0, 19);
+        fs.writeFileSync(path.join(historyDir, `dispatch-${ts}.json`), JSON.stringify(prev, null, 2), 'utf-8');
+      } catch { /* corrupt or missing — safe to skip archiving */ }
+    }
 
     this._writeJson(
       { ...dispatchData, createdAt: new Date().toISOString() },
@@ -507,7 +522,25 @@ class WorkspaceService {
     const record = JSON.parse(fs.readFileSync(filePath, 'utf8'));
     const target = SEMANTIC_TARGETS[record.type];
     if (!target) throw new Error('语义候选类型无效');
+
+    // ── Column consistency check (#22) ──
+    // Verify the candidate has values for the required columns of its target
+    // table. If a critical column is missing, reject with a clear message.
     const values = { ...record.details, ...record, confirmedBy, notes: record.details?.notes || record.impact };
+    const missing = target.columns.filter((col) => {
+      const v = values[col];
+      return v === undefined || v === null || String(v).trim() === '';
+    });
+    // title (first column) and proposed (definition) are always required
+    const firstCol = target.columns[0];
+    if (!String(values[firstCol] || '').trim()) {
+      throw new Error(`候选缺少必填列「${firstCol}」，无法写入${target.label}表`);
+    }
+    // For metric/entity, the definition column is critical
+    if ((record.type === 'metric' || record.type === 'entity') && missing.includes('proposed')) {
+      throw new Error(`候选缺少建议定义，无法写入${target.label}表。请先在候选确认中补齐。`);
+    }
+
     const row = `| ${target.columns.map((column) => safeTableCell(values[column])).join(' | ')} |\n`;
     const formalPath = this.resolvePath(SEMANTIC_ROOT, target.file);
     if (!fs.existsSync(formalPath)) throw new Error(`正式语义文件不存在: ${target.file}`);
@@ -533,6 +566,26 @@ class WorkspaceService {
   }
 
   // ── Domain Skill management ──────────────────────────────────────
+
+  /**
+   * List pending semantic candidates from the 待确认建议 directory.
+   * Used in prompt generation so the AI knows what's already proposed.
+   * @returns {object[]}
+   */
+  _listPendingSemanticCandidates() {
+    const dir = this.resolvePath(SEMANTIC_ROOT, SEMANTIC_CANDIDATES_DIR);
+    if (!fs.existsSync(dir)) return [];
+    try {
+      return fs.readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isFile() && e.name.endsWith('.json'))
+        .map((e) => {
+          try { return JSON.parse(fs.readFileSync(path.join(dir, e.name), 'utf8')); }
+          catch { return null; }
+        })
+        .filter(Boolean)
+        .slice(0, 20);
+    } catch { return []; }
+  }
 
   static SKILLS_DIR = '03-领域分析Skills';
 
@@ -1262,13 +1315,19 @@ class WorkspaceService {
         const content = fs.readFileSync(fp, 'utf8').trim();
         const lines = content.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|--'));
         const dataRows = lines.slice(2).filter(l => l.split('|').filter(c => c.trim()).length > 1);
-        if (dataRows.length === 0) return { file: path.basename(fp), rows: 0 };
-        return { file: path.basename(fp), rows: dataRows.length, preview: dataRows.slice(0, 3).join('\n') };
-      } catch { return { file: path.basename(fp), rows: 0 }; }
+        if (dataRows.length === 0) return { file: path.basename(fp), rows: 0, content: '' };
+        return { file: path.basename(fp), rows: dataRows.length, content };
+      } catch { return { file: path.basename(fp), rows: 0, content: '' }; }
     }).filter(s => s.rows > 0);
+    // ── P-B fix: include full semantic table content, not just 3-row preview ──
     const semanticSummary = semanticTableContent.map(s =>
-      `- ${s.file}：${s.rows}条正式定义\n  ${s.preview ? `  示例：\n  ${s.preview}` : ''}`
+      `- ${s.file}：${s.rows}条正式定义（全文见下方权限边界中的只读路径）`
     ).join('\n');
+    // ── P-G fix: list pending semantic candidates so AI doesn't re-propose them ──
+    const pendingCandidates = this._listPendingSemanticCandidates();
+    const pendingBlock = pendingCandidates.length > 0
+      ? ['', '### 已有待确认语义候选（勿重复提出）', '', ...pendingCandidates.map((c) => `- [${c.typeLabel || c.type}] ${c.title}：${(c.proposed || '').slice(0, 80)}`), '']
+      : [];
     const receiptExample = JSON.stringify({
       kind,
       status: 'completed',
@@ -1298,6 +1357,7 @@ class WorkspaceService {
 
     const executionSteps = this._buildPromptExecutionSteps({
       kind,
+      taskId,
       taskRoot,
       outputsPath,
       validationPath,
@@ -1345,6 +1405,7 @@ class WorkspaceService {
       `禁止修改外部资料目录、工作区正式权威语义层及当前任务之外的任何文件。语义改进只能写成候选建议，等待人工确认。`,
       ...this._buildExternalSourcesPrompt(taskId),
       ...skillBlock,
+      ...pendingBlock,
       ``,
       `## 2. 任务基本信息`,
       `- 任务ID: ${task.id}`,
@@ -1355,15 +1416,11 @@ class WorkspaceService {
       ``,
       ...(userInstructions.length ? ['## 3. 用户在工作台填写的分析指令', ...userInstructions, ''] : []),
       `## ${userInstructions.length ? '4' : '3'}. 执行原则`,
-      `- 基于当前已有资料始终产出可用版本，资料缺口只改变结论边界，不阻塞报告`,
-      `- 优先读取权威语义层，同时主动发现异常、反例、冲突与新的解释`,
-      `- 区分事实、推断和建议；每个关键结论标注来源、截止时间与可信度`,
-      `- 对高风险判断进行交叉校验，不确定内容进入验证清单`,
-      `- 不因四件套尚未补齐而拒绝分析；先基于现有资料形成报告，再记录缺口`,
-      ``,
+      ...this._buildExecutionPrinciples(kind),
+      '',
       `## ${userInstructions.length ? '5' : '4'}. 本次执行步骤与交付`,
       ...executionSteps,
-      ``,
+      '',
       `## ${userInstructions.length ? '6' : '5'}. 完成判定`,
       `只有当要求的输出文件和状态文件实际写入上述绝对路径后，才算完成。`,
       `最终回复必须逐项列出实际写入的绝对路径；不得只在聊天中给出分析结果。`,
@@ -1372,7 +1429,55 @@ class WorkspaceService {
     return { id: taskId, prompt, createdAt: new Date().toISOString() };
   }
 
-  _buildPromptExecutionSteps({ kind, taskRoot, outputsPath, validationPath, kindConfig, fourPiecePaths, receiptPath, receiptExample }) {
+  _buildExecutionPrinciples(kind) {
+    // ── P-F fix: principles are tailored per kind, not one-size-fits-all ──
+    const common = [
+      '- 优先读取权威语义层，同时主动发现异常、反例、冲突与新的解释',
+      '- 区分事实、推断和建议；每个关键结论标注来源、截止时间与可信度',
+    ];
+    if (kind === 'analysis' || kind === 'reanalysis') {
+      return [
+        '- 基于当前已有资料始终产出可用版本，资料缺口只改变结论边界，不阻塞报告',
+        ...common,
+        '- 对高风险判断进行交叉校验，不确定内容进入验证清单',
+        '- 不因四件套尚未补齐而拒绝分析；先基于现有资料形成报告，再记录缺口',
+        ...(kind === 'reanalysis' ? ['- 重分析只修改受新反馈影响的结论，不要全盘重写未受影响的部分'] : []),
+      ];
+    }
+    if (kind === 'four-piece') {
+      return [
+        ...common,
+        '- 只补充有证据支持的内容，不得编造口径、来源或业务事实',
+        '- 无法确认的内容保留为待验证项，不得因缺口拒绝补齐',
+        '- 不生成新分析报告，只整理分析依据和验证要求',
+      ];
+    }
+    if (kind === 'evaluation') {
+      return [
+        ...common,
+        '- 评测只检查已有输出，不修改原报告',
+        '- 评分标准：90-100 优秀，80-89 良好，60-79 有条件通过，60以下不通过',
+        '- 每个检查项必须给出 pass/warn/fail 和具体扣分原因',
+      ];
+    }
+    if (kind === 'html') {
+      return [
+        ...common,
+        '- 生成可离线打开的单文件HTML，无外部依赖',
+        '- 不改变原报告结论；发现冲突时单独写入待确认项',
+      ];
+    }
+    if (kind === 'skill') {
+      return [
+        ...common,
+        '- 只提炼可复用方法，不包含业务敏感数据',
+        '- 候选Skill必须等待人工确认，不得直接写入全局Skills目录',
+      ];
+    }
+    return common;
+  }
+
+  _buildPromptExecutionSteps({ kind, taskId, taskRoot, outputsPath, validationPath, kindConfig, fourPiecePaths, receiptPath, receiptExample }) {
     if (kind === 'four-piece') {
       return [
         `1. 读取任务资料、现有四件套、已有正式输出和验证反馈。`,
@@ -1389,11 +1494,17 @@ class WorkspaceService {
       const evaluationJsonPath = path.join(validationPath, 'evaluation.json');
       return [
         `1. 读取 ${outputsPath} 中的正式输出，并回查原始资料、来源清单、口径映射和验证清单。`,
-        `2. 抽查事实、数字、口径、推理、反证、来源追溯和行动可执行性。`,
+        `2. 按以下维度抽查并评分（每项 pass=满分/warn=半分/fail=0分）：`,
+        `   - 事实准确性（30分）：关键数字、口径与权威语义层是否一致`,
+        `   - 来源可追溯（20分）：每个关键结论是否标注来源文件与行/列`,
+        `   - 推理严谨性（20分）：是否存在逻辑跳跃、未考虑的反证`,
+        `   - 结论边界（15分）：是否区分事实/推断/建议，是否标注不确定性`,
+        `   - 行动可执行性（15分）：建议是否具体、可落地、有责任人或时间`,
         `3. 将完整评测报告写入: ${kindConfig.output}`,
         `4. 将机器可读结果写入: ${evaluationJsonPath}`,
-        `5. evaluation.json 至少包含 status、score、checkedAt、checks；score 为 0-100 数字，checks 为数组。`,
-        `6. AI评测不得修改原报告，只能提出问题和改进建议。`,
+        `5. evaluation.json 必须包含 status(pass/warn/fail)、score(0-100数字)、checkedAt、checks数组；status 按 score 判定：>=80 pass，>=60 warn，<60 fail。`,
+        `6. checks 数组每项包含 id、title、status、score、max、detail。`,
+        `7. AI评测不得修改原报告，只能提出问题和改进建议。`,
       ];
     }
 
@@ -1418,8 +1529,10 @@ class WorkspaceService {
     }
 
     const isReanalysis = kind === 'reanalysis';
+    // ── P-D fix: list newly added feedback files so the AI knows what changed ──
+    const feedbackList = isReanalysis ? this._listValidationFeedback(taskId) : [];
     return [
-      `1. ${isReanalysis ? `先读取 ${outputsPath} 中既有报告以及 ${validationPath} 中新增反馈，再重新分析。` : '读取任务raw、外部只读来源、四件套、权威语义和相关领域Skill。'}`,
+      `1. ${isReanalysis ? `先读取 ${outputsPath} 中既有报告以及 ${validationPath} 中新增反馈，再重新分析。${feedbackList.length ? `\n   新增反馈文件：\n${feedbackList.map((f) => `   - ${f}`).join('\n')}` : ''}` : '读取任务raw、外部只读来源、四件套、权威语义和相关领域Skill。'}`,
       `2. 将正式报告写入: ${kindConfig.output}`,
       `3. 报告至少包含：执行摘要、事实与来源、关键判断、反证与不确定性、风险、行动建议、待验证项。`,
       `4. 根据实际分析刷新四件套：`,
@@ -1430,6 +1543,22 @@ class WorkspaceService {
       '```json', receiptExample, '```',
       `${isReanalysis ? '8' : '7'}. 不要把正式输出复制到工作区根目录的 06-输出物；当前任务的 outputs 是唯一正式输出位置。`,
     ];
+  }
+
+  /**
+   * List validation feedback files for a task (for reanalysis prompt injection).
+   * @param {string} taskId
+   * @returns {string[]} filenames
+   */
+  _listValidationFeedback(taskId) {
+    try {
+      const valDir = this.resolvePath(TASKS_DIR, taskId, 'validation');
+      if (!fs.existsSync(valDir)) return [];
+      return fs.readdirSync(valDir, { withFileTypes: true })
+        .filter((e) => e.isFile() && e.name.startsWith('feedback-'))
+        .map((e) => e.name)
+        .sort();
+    } catch { return []; }
   }
 
   generateSemanticMaintenancePrompt() {
@@ -1508,6 +1637,15 @@ class WorkspaceService {
         const files = source.topLevelItems.filter((i) => !i.isDirectory).map((i) => i.name);
         if (dirs.length) lines.push(`- 子目录: ${dirs.join('、')}`);
         if (files.length) lines.push(`- 顶层文件: ${files.join('、')}`);
+      }
+      // ── P-C fix: inject the recursive file inventory so the AI doesn't
+      // need to re-scan the directory itself (which can time out on large dirs).
+      const inventory = this.getExternalSourceInventory(taskId, source.path);
+      if (inventory && inventory.files && inventory.files.length > 0) {
+        const fileList = inventory.files.slice(0, 200).map((f) => `  - ${f.relativePath} (${f.size} bytes)`);
+        lines.push(`- 递归文件清单（共 ${inventory.files.length} 个，${inventory.files.length > 200 ? '仅列前200个' : '全部'}）：`);
+        lines.push(...fileList);
+        if (inventory.files.length > 200) lines.push(`  - …及其余 ${inventory.files.length - 200} 个文件`);
       }
       if (source.anomalies.length > 0) {
         lines.push(`- 扫描异常（${source.anomalies.length} 项）:`);
