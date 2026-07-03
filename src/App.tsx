@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Archive, ArrowClockwise, Bell, BookOpenText, CaretDown, CaretRight, Check,
   CheckCircle, ClipboardText, ClockCounterClockwise, Copy, Database, File, FileCsv,
@@ -144,15 +145,14 @@ function ContextPane({ task, onPick, skills, onSetSkill }: { task: TaskDetail; o
   </section>;
 }
 
-function AnalysisEditor({ task, promptPreview, previewSource, onCopy, onDispatch, onSave, activeSkill, aiState, aiEvents, aiInstalled, onAiExecute, onAiCancel }: { task: TaskDetail; promptPreview: string; previewSource: "copy" | "dispatch" | null; onCopy: (draft: PromptDraft) => void; onDispatch: (draft: PromptDraft) => void; onSave: (draft: PromptDraft) => void; activeSkill?: DomainSkill; aiState: AIExecutionState; aiEvents: AIStreamEvent[]; aiInstalled: AIInstallationInfo | null; onAiExecute: (draft: PromptDraft) => void; onAiCancel: () => void }) {
+function AnalysisEditor({ task, promptPreview, previewSource, onCopy, onDispatch, onSave, activeSkill, aiState, aiEvents, aiInstalled, onAiExecute, onAiCancel, aiPanelOpen, setAiPanelOpen }: { task: TaskDetail; promptPreview: string; previewSource: "copy" | "dispatch" | null; onCopy: (draft: PromptDraft) => void; onDispatch: (draft: PromptDraft) => void; onSave: (draft: PromptDraft) => void; activeSkill?: DomainSkill; aiState: AIExecutionState; aiEvents: AIStreamEvent[]; aiInstalled: AIInstallationInfo | null; onAiExecute: (draft: PromptDraft) => void; onAiCancel: () => void; aiPanelOpen: boolean; setAiPanelOpen: (v: boolean) => void }) {
   const [goal, setGoal] = useState("基于提供的资料，完成示例经营单元的首次分析，形成初版报告、关键结论、证据和待验证问题。");
   const [thinking, setThinking] = useState("从结构、趋势、异常、对比四个维度展开；主动寻找反例与替代解释；结合历史口径变化，关注指标一致性与可比性。");
   const [verification, setVerification] = useState("严格使用资料所载口径与单位；无法判断的内容明确标注并提出补充；关键结论必须注明来源文件与行/列。");
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const draft = (): PromptDraft => ({ goal, thinking, verification });
   const skillLabel = activeSkill ? `${activeSkill.name}（${activeSkill.domain} v${activeSkill.version}）` : '通用经营分析（未选择Skill）';
-  const canAiExecute = aiInstalled?.installed && aiState === "idle";
-  const aiRunning = aiState === "running";
+  const canAiExecute = aiInstalled?.installed && (aiState === "idle" || aiState === "completed" || aiState === "error" || aiState === "cancelled");
+  const aiRunning = aiState === "running" || aiState === "checking";
 
   return <section className="editor-pane pane">
     <header className="editor-head"><div><h2>首次分析调度单</h2><p>生成时间：{new Date().toLocaleString('zh-CN')}　任务：{task.name}</p></div><div><AppButton tone="ghost">模板</AppButton><AppButton tone="ghost">清空</AppButton><AppButton tone="ghost" icon={<Copy size={14} />} onClick={() => onCopy(draft())}>复制</AppButton><AppButton tone="ghost" onClick={() => onSave(draft())}>保存草稿</AppButton></div></header>
@@ -166,7 +166,7 @@ function AnalysisEditor({ task, promptPreview, previewSource, onCopy, onDispatch
     </div>
     <div className="dispatch-difference"><div><strong>三个按钮使用同一份提示词</strong><span>复制调度单：只复制，不改变任务状态。</span></div><div><span>开始外部分析：复制提示词，同时登记为"等待外部 Agent 回执"。</span></div><div><span>✨ 直接执行：调用本地 WorkBuddy AI 引擎，自动写入结果。需安装 WorkBuddy。</span></div></div>
     {promptPreview ? <section className="analysis-prompt-preview"><header><div><strong>调度单预览</strong><span>{previewSource === "dispatch" ? "已登记外部分析，等待回执" : "仅预览并复制，尚未登记执行"}</span></div><AppButton icon={<Copy size={14} />} onClick={async () => navigator.clipboard.writeText(promptPreview)}>再次复制</AppButton></header><pre>{promptPreview}</pre></section> : null}
-    {aiPanelOpen || aiRunning ? <AIStreamPanel events={aiEvents} state={aiState} onCancel={onAiCancel} /> : null}
+    {aiPanelOpen || aiRunning ? <AIStreamPanel events={aiEvents} state={aiState} onCancel={() => { onAiCancel(); setAiPanelOpen(false); }} title="AI 直连分析" /> : null}
     <footer className="editor-actions">
       <AppButton icon={<Copy size={16} />} onClick={() => onCopy(draft())}>复制调度单并预览</AppButton>
       <AppButton tone="primary" icon={<Robot size={17} />} onClick={() => onDispatch(draft())}>开始外部分析并预览</AppButton>
@@ -174,34 +174,107 @@ function AnalysisEditor({ task, promptPreview, previewSource, onCopy, onDispatch
         tone="primary"
         icon={<Sparkle size={17} />}
         disabled={!canAiExecute}
-        onClick={() => { onAiExecute(draft()); setAiPanelOpen(true); }}
+        onClick={() => { onAiExecute(draft()); }}
         title={!aiInstalled?.installed ? "需要安装 WorkBuddy 才能使用 AI 直连" : aiRunning ? "AI 正在执行中" : "直接调用 WorkBuddy AI 引擎执行分析"}
       >✨ 直接执行{!aiInstalled?.installed ? "（未安装）" : ""}</AppButton>
     </footer>
   </section>;
 }
 
-function AIStreamPanel({ events, state, onCancel }: { events: AIStreamEvent[]; state: AIExecutionState; onCancel: () => void }) {
-  const scrollRef = useState<HTMLDivElement | null>(null);
-  const lastEvents = events.slice(-50); // Keep last 50 events for display
-  const statusLabel = state === "running" ? "AI 执行中…" : state === "completed" ? "执行完成" : state === "error" ? "执行失败" : state === "cancelled" ? "已取消" : "就绪";
-  const statusColor = state === "running" ? "#4f9d76" : state === "completed" ? "#4f9d76" : state === "error" ? "#c44" : state === "cancelled" ? "#7b8b94" : "#7b8b94";
+// ── AI execution hook (shared by 03 analysis & 05 reanalysis) ──
+function useAiExecution(taskId: string, kind: string, notify?: (m: string) => void, refresh?: (task: TaskDetail) => void) {
+  const [aiState, setAiState] = useState<AIExecutionState>("idle");
+  const [aiEvents, setAiEvents] = useState<AIStreamEvent[]>([]);
+  const [aiInstalled, setAiInstalled] = useState<AIInstallationInfo | null>(null);
 
-  return <section className="ai-stream-panel">
-    <header className="ai-stream-head">
-      <div><Sparkle size={18} color={statusColor} /><strong>AI 直连执行</strong><span style={{ color: statusColor }}>{statusLabel}</span></div>
-      {state === "running" ? <AppButton tone="danger" onClick={onCancel}>取消执行</AppButton> : null}
-    </header>
-    <div className="ai-stream-scroll" ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
-      {lastEvents.length === 0 ? <div className="ai-stream-empty">等待 AI 响应…</div> : lastEvents.map((event, index) => <div key={index} className={`ai-stream-event ai-event-${event.type}`}>
-        {event.type === "assistant" ? <><Robot size={14} color="#4f9d76" /><div className="ai-event-content">{event.content}</div></>
-        : event.type === "tool_use" ? <><span className="ai-tool-icon">🔧</span><div className="ai-event-content"><em>{event.toolName || event.content}</em></div></>
-        : event.type === "tool_result" ? <><span className="ai-tool-icon">📋</span><div className="ai-event-content"><small>{event.content.slice(0, 200)}{event.content.length > 200 ? '…' : ''}</small></div></>
-        : event.type === "system" ? <><span className="ai-system-icon">⚙️</span><div className="ai-event-content"><small style={{color:'#7b8b94'}}>{event.content}</small></div></>
-        : <><span className="ai-raw-icon">📝</span><div className="ai-event-content">{event.content}</div></>}
-      </div>)}
-    </div>
-  </section>;
+  useEffect(() => {
+    api.checkAiInstallation().then(setAiInstalled).catch(() => setAiInstalled({ installed: false, cliPath: null, platform: 'unknown' }));
+  }, []);
+
+  useEffect(() => {
+    api.onAiEvent((event: AIStreamEvent) => {
+      if (event.taskId !== taskId) return;
+      setAiEvents((prev) => [...prev, event]);
+      if (event.type === 'system' && event.subtype === 'started') setAiState("running");
+      if (event.type === 'system' && event.subtype === 'cancelled') setAiState("cancelled");
+    });
+    api.onAiComplete((result) => {
+      if (result.taskId !== taskId) return;
+      setAiState("completed");
+      const label = kind === 'reanalysis' ? '重分析' : '分析';
+      notify?.(`AI 直连${label}完成，结果已自动写入 outputs/`);
+      if (refresh) api.getTask(taskId).then(refresh);
+    });
+    api.onAiError((error) => {
+      if (error.taskId !== taskId) return;
+      setAiState("error");
+      notify?.(`AI 执行失败：${error.error}`);
+    });
+    return () => { api.removeAiListeners(); };
+  }, [taskId]);
+
+  const execute = async (prompt: string) => {
+    setAiState("checking");
+    setAiEvents([]);
+    try {
+      const result = await api.executeAiAnalysis(taskId, prompt, { maxTurns: 10, permissionMode: 'acceptEdits', kind });
+      if (result.started) {
+        setAiState("running");
+        notify?.("AI 引擎已启动");
+      } else {
+        setAiState("error");
+        notify?.("AI 引擎启动失败");
+      }
+    } catch (error: any) {
+      setAiState("error");
+      notify?.(error.message || "AI 执行失败");
+    }
+  };
+
+  const cancel = async () => {
+    await api.cancelAiExecution();
+    setAiState("cancelled");
+    notify?.("AI 执行已取消");
+  };
+
+  return { aiState, aiEvents, aiInstalled, execute, cancel };
+}
+
+function AIStreamPanel({ events, state, onCancel, title }: { events: AIStreamEvent[]; state: AIExecutionState; onCancel: () => void; title: string }) {
+  const lastEvents = events.slice(-200);
+  const statusLabel = state === "running" ? "AI 执行中…" : state === "checking" ? "正在启动…" : state === "completed" ? "执行完成" : state === "error" ? "执行失败" : state === "cancelled" ? "已取消" : "就绪";
+  const statusColor = state === "running" || state === "checking" ? "#4f9d76" : state === "completed" ? "#4f9d76" : state === "error" ? "#c44" : "#7b8b94";
+
+  return createPortal(
+    <div className="ai-overlay" onClick={state === "running" ? undefined : onCancel}>
+      <div className="ai-modal" onClick={(e) => e.stopPropagation()}>
+        <header className="ai-modal-head">
+          <div className="ai-modal-title"><Sparkle size={20} color={statusColor} /><strong>{title}</strong><span className="ai-status-badge" style={{ color: statusColor, borderColor: statusColor }}>{statusLabel}</span></div>
+          <div className="ai-modal-actions">
+            {state === "running" ? <AppButton tone="danger" icon={<X size={15} />} onClick={onCancel}>取消执行</AppButton>
+            : <AppButton tone="ghost" icon={<X size={15} />} onClick={onCancel}>关闭</AppButton>}
+          </div>
+        </header>
+        <div className="ai-modal-body" ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
+          {lastEvents.length === 0 ? <div className="ai-modal-empty"><Spinner /><span>等待 AI 响应…</span></div> : lastEvents.map((event, index) => {
+            const content = typeof event.content === 'string' ? event.content : JSON.stringify(event.content);
+            const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            if (event.type === "assistant") return <div key={index} className="ai-event ai-event-assistant"><div className="ai-event-meta"><Robot size={14} color="#4f9d76" /><span className="ai-event-label">AI</span><span className="ai-event-time">{time}</span></div><div className="ai-event-content">{content}</div></div>;
+            if (event.type === "tool_use") return <div key={index} className="ai-event ai-event-tool"><div className="ai-event-meta"><span className="ai-tool-icon">🔧</span><span className="ai-event-label">工具调用</span><span className="ai-event-time">{time}</span></div><div className="ai-event-content">{event.toolName || content}</div></div>;
+            if (event.type === "tool_result") return <div key={index} className="ai-event ai-event-result"><div className="ai-event-meta"><span className="ai-result-icon">📋</span><span className="ai-event-label">执行结果</span><span className="ai-event-time">{time}</span></div><div className="ai-event-content"><small>{content.slice(0, 500)}{content.length > 500 ? '…' : ''}</small></div></div>;
+            if (event.type === "system") return <div key={index} className="ai-event ai-event-system"><div className="ai-event-meta"><span className="ai-sys-icon">⚙</span><span className="ai-event-time">{time}</span></div><div className="ai-event-content">{content}</div></div>;
+            if (event.type === "result") return <div key={index} className="ai-event ai-event-result"><div className="ai-event-meta"><CheckCircle size={14} color="#4f9d76" /><span className="ai-event-label">最终结果</span></div><div className="ai-event-content">{content}</div></div>;
+            return <div key={index} className="ai-event ai-event-raw"><div className="ai-event-meta"><span className="ai-raw-icon">📝</span><span className="ai-event-time">{time}</span></div><div className="ai-event-content">{content}</div></div>;
+          })}
+        </div>
+        <footer className="ai-modal-foot">
+          <span>{lastEvents.length} 条事件</span>
+          <span className="ai-foot-hint">{state === "running" ? "AI 正在执行，请勿关闭窗口" : "执行已结束"}</span>
+        </footer>
+      </div>
+    </div>,
+    document.body
+  );
 }
 
 function PromptSection({ number, title, children }: { number: string; title: string; children: React.ReactNode }) { return <section className="prompt-section"><h3>{number}. {title}</h3>{children}</section>; }
@@ -224,37 +297,8 @@ function ReceiptPane({ task, onReveal, onRefresh }: { task: TaskDetail; onReveal
 
 function AnalysisStage({ task, notify, refresh, skills, onSetSkill }: { task: TaskDetail; notify: (message: string) => void; refresh: (task: TaskDetail) => void; skills: DomainSkill[]; onSetSkill: (skillId: string | null) => Promise<void> }) {
   const [promptPreview, setPromptPreview] = useState(""); const [previewSource, setPreviewSource] = useState<"copy" | "dispatch" | null>(null);
-  const [aiState, setAiState] = useState<AIExecutionState>("idle");
-  const [aiEvents, setAiEvents] = useState<AIStreamEvent[]>([]);
-  const [aiInstalled, setAiInstalled] = useState<AIInstallationInfo | null>(null);
-
-  // Check WorkBuddy installation on mount
-  useEffect(() => {
-    api.checkAiInstallation().then(setAiInstalled).catch(() => setAiInstalled({ installed: false, cliPath: null, platform: 'unknown' }));
-  }, []);
-
-  // Register AI event listeners
-  useEffect(() => {
-    api.onAiEvent((event: AIStreamEvent) => {
-      if (event.taskId !== task.id) return;
-      setAiEvents((prev) => [...prev, event]);
-      if (event.type === 'system' && event.subtype === 'started') setAiState("running");
-      if (event.type === 'system' && event.subtype === 'cancelled') setAiState("cancelled");
-    });
-    api.onAiComplete((result) => {
-      if (result.taskId !== task.id) return;
-      setAiState("completed");
-      notify("AI 直连分析完成，结果已自动写入 outputs/");
-      // Refresh task to show new output files
-      api.getTask(task.id).then(refresh);
-    });
-    api.onAiError((error) => {
-      if (error.taskId !== task.id) return;
-      setAiState("error");
-      notify(`AI 执行失败：${error.error}`);
-    });
-    return () => { api.removeAiListeners(); };
-  }, [task.id]);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const { aiState, aiEvents, aiInstalled, execute: aiExecute, cancel: aiCancel } = useAiExecution(task.id, "analysis", notify, refresh);
 
   const copyPrompt = async (draft: PromptDraft) => { const prompt = await api.generatePrompt(task.id, "analysis", draft); setPromptPreview(prompt); setPreviewSource("copy"); try { await navigator.clipboard.writeText(prompt); notify("首次分析调度单已复制并显示预览"); } catch { notify("已显示调度单预览，可点击预览区再次复制"); } };
   const dispatchPrompt = async (draft: PromptDraft) => { const prompt = await api.dispatchPrompt(task.id, "analysis", draft); setPromptPreview(prompt); setPreviewSource("dispatch"); refresh(await api.getTask(task.id)); try { await navigator.clipboard.writeText(prompt); notify("调度单已复制并登记执行，等待外部 Agent 回执"); } catch { notify("已登记执行并显示预览，请从预览区复制调度单"); } };
@@ -263,33 +307,16 @@ function AnalysisStage({ task, notify, refresh, skills, onSetSkill }: { task: Ta
 
   // AI direct execution
   const executeAi = async (draft: PromptDraft) => {
-    setAiState("checking");
-    setAiEvents([]);
-    try {
-      const prompt = await api.generatePrompt(task.id, "analysis", draft);
-      setPromptPreview(prompt);
-      const result = await api.executeAiAnalysis(task.id, prompt, { maxTurns: 10, permissionMode: 'acceptEdits' });
-      if (result.started) {
-        setAiState("running");
-        notify("AI 引擎已启动");
-      } else {
-        setAiState("error");
-        notify("AI 引擎启动失败");
-      }
-    } catch (error: any) {
-      setAiState("error");
-      notify(error.message || "AI 执行失败");
-    }
+    setAiPanelOpen(true);
+    const prompt = await api.generatePrompt(task.id, "analysis", draft);
+    setPromptPreview(prompt);
+    await aiExecute(prompt);
   };
 
-  const cancelAi = async () => {
-    await api.cancelAiExecution();
-    setAiState("cancelled");
-    notify("AI 执行已取消");
-  };
-
+  const aiRunning = aiState === "running" || aiState === "checking";
+  const canAiExecute = aiInstalled?.installed && (aiState === "idle" || aiState === "completed" || aiState === "error" || aiState === "cancelled");
   const activeSkill = skills.find((s) => s.id === task.skillId);
-  return <div className="analysis-canvas"><ContextPane task={task} onPick={async () => refresh(await api.pickFiles(task.id, "raw"))} skills={skills} onSetSkill={async (sid) => { onSetSkill(sid); refresh(await api.getTask(task.id)); }} /><div className="resize-handle" /><AnalysisEditor task={task} promptPreview={promptPreview} previewSource={previewSource} onCopy={copyPrompt} onDispatch={dispatchPrompt} onSave={saveDraft} activeSkill={activeSkill} aiState={aiState} aiEvents={aiEvents} aiInstalled={aiInstalled} onAiExecute={executeAi} onAiCancel={cancelAi} /><div className="resize-handle" /><ReceiptPane task={task} onReveal={() => api.revealPath(`${task.path}/outputs`)} onRefresh={refreshReceipt} /></div>;
+  return <div className="analysis-canvas"><ContextPane task={task} onPick={async () => refresh(await api.pickFiles(task.id, "raw"))} skills={skills} onSetSkill={async (sid) => { onSetSkill(sid); refresh(await api.getTask(task.id)); }} /><div className="resize-handle" /><AnalysisEditor task={task} promptPreview={promptPreview} previewSource={previewSource} onCopy={copyPrompt} onDispatch={dispatchPrompt} onSave={saveDraft} activeSkill={activeSkill} aiState={aiState} aiEvents={aiEvents} aiInstalled={aiInstalled} onAiExecute={executeAi} onAiCancel={aiCancel} aiPanelOpen={aiPanelOpen} setAiPanelOpen={setAiPanelOpen} /><div className="resize-handle" /><ReceiptPane task={task} onReveal={() => api.revealPath(`${task.path}/outputs`)} onRefresh={refreshReceipt} /></div>;
 }
 
 function OverviewStage({ task, setStage }: { task: TaskDetail; setStage: (stage: StageId) => void }) {
@@ -440,11 +467,21 @@ function ValidationStage({ task, refresh, notify }: { task: TaskDetail; refresh:
   const [selectedId, setSelectedId] = useState(pending[0]?.id || "general"); const [feedback, setFeedback] = useState("");
   const selected = task.validation.find((item) => item.id === selectedId);
   const [promptPreview, setPromptPreview] = useState(""); const [previewSource, setPreviewSource] = useState<"copy" | "dispatch" | null>(null);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const { aiState, aiEvents, aiInstalled, execute: aiExecute, cancel: aiCancel } = useAiExecution(task.id, "reanalysis", notify, refresh);
   useEffect(() => { if (selectedId !== "general" && !task.validation.some((item) => item.id === selectedId && item.status !== "resolved")) setSelectedId(pending[0]?.id || "general"); }, [task.validation, selectedId]);
   const dispatch = async () => { const prompt = await api.dispatchPrompt(task.id, "reanalysis"); setPromptPreview(prompt); setPreviewSource("dispatch"); refresh(await api.getTask(task.id)); try { await navigator.clipboard.writeText(prompt); notify("重分析调度单已复制，外部 Agent 将读取验证补充后重做报告"); } catch { notify("已登记执行并显示预览，请从预览区复制调度单"); } };
   const previewOnly = async () => { const prompt = await api.generatePrompt(task.id, "reanalysis"); setPromptPreview(prompt); setPreviewSource("copy"); notify("重分析调度单已生成预览"); };
   const submit = async () => { if (!feedback.trim()) return; const question = selected?.title || "通用补充"; const body = `# 人工确认与补充\n\n## 对应问题\n${question}\n\n## 用户补充\n${feedback.trim()}\n`; refresh(await api.writeFeedback(task.id, selected?.id || "general", body)); setFeedback(""); notify("补充已写入，下一次重分析会自动读取"); };
-  return <div className="validation-stage"><section className="closeout-guide"><div><span>03 初版分析</span><CaretRight size={14} /><span>04 四件套已收工</span><CaretRight size={14} /><strong>05 人工验证与回流</strong></div><p>先记录确认结果；只有结论需要改变时才发起重分析。</p></section><div className="validation-workspace"><section className="validation-queue"><header><h2>第一步：选择验证项</h2><span>待处理 {pending.length} / 已处理 {resolved.length}</span></header>{pending.map((item) => <button className={selected?.id === item.id ? "active" : ""} key={item.id} onClick={() => setSelectedId(item.id)}><WarningCircle size={17} /><span><strong>{item.title}</strong><small>{item.source}</small></span><CaretRight size={15} /></button>)}{resolved.map((item) => <button className={selected?.id === item.id ? "active resolved" : "resolved"} key={item.id} onClick={() => setSelectedId(item.id)}><CheckCircle size={17} color="#4f9d76" /><span><strong>{item.title}</strong><small style={{color:'#4f9d76'}}>已处理 · {item.source}</small></span><CaretRight size={15} /></button>)}{!pending.length && !resolved.length ? <div className="queue-empty"><CheckCircle size={24} /><strong>暂无待确认问题</strong><span>仍可录入新的业务确认。</span></div> : null}<button className={selectedId === "general" ? "active general-feedback" : "general-feedback"} onClick={() => setSelectedId("general")}><Plus size={17} /><span><strong>其他补充</strong><small>新增事实、口径或行动进展</small></span><CaretRight size={15} /></button></section><section className="validation-detail"><header><div><h2>第二步：录入人工确认</h2><p>{selected?.title || "补充新信息"}</p></div></header>{selected ? <><div className="detail-block"><span>问题说明</span><p>{selected.description}</p></div><div className="detail-block"><span>证据位置</span><p>{selected.source || "未记录"}</p></div></> : <div className="detail-block"><span>适用场景</span><p>补充首次分析未覆盖的新事实、指标口径、业务确认或行动进展。</p></div>}<label className="field-label">确认结果<textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="填写确认的事实、口径、原因或行动进展。提交后保存到 validation 目录。" /></label><div className="detail-actions"><AppButton icon={<UploadSimple size={16} />} onClick={async () => { refresh(await api.pickFiles(task.id, "validation")); notify("附件已加入验证区"); }}>上传附件</AppButton><AppButton tone="primary" disabled={!feedback.trim()} onClick={submit}>保存确认结果</AppButton></div><div className="reanalysis-gate"><div><strong>第三步（按需）：重分析</strong><span>只有新增事实会改变报告结论时才执行。</span></div><div className="inline-actions"><AppButton icon={<Robot size={15} />} onClick={previewOnly}>预览调度单</AppButton><AppButton icon={<ArrowClockwise size={15} />} onClick={dispatch}>发起重分析并复制</AppButton></div></div><PromptPreviewPanel content={promptPreview} source={previewSource} onClose={() => setPromptPreview("")} /></section><ReceiptPane task={task} onReveal={() => api.revealPath(`${task.path}/outputs`)} onRefresh={async () => refresh(await api.getTask(task.id))} /></div></div>;
+  const aiRunning = aiState === "running" || aiState === "checking";
+  const canAiExecute = aiInstalled?.installed && (aiState === "idle" || aiState === "completed" || aiState === "error" || aiState === "cancelled");
+  const executeReanalysis = async () => {
+    setAiPanelOpen(true);
+    const prompt = await api.generatePrompt(task.id, "reanalysis");
+    setPromptPreview(prompt);
+    await aiExecute(prompt);
+  };
+  return <div className="validation-stage"><section className="closeout-guide"><div><span>03 初版分析</span><CaretRight size={14} /><span>04 四件套已收工</span><CaretRight size={14} /><strong>05 人工验证与回流</strong></div><p>先记录确认结果；只有结论需要改变时才发起重分析。</p></section><div className="validation-workspace"><section className="validation-queue"><header><h2>第一步：选择验证项</h2><span>待处理 {pending.length} / 已处理 {resolved.length}</span></header>{pending.map((item) => <button className={selected?.id === item.id ? "active" : ""} key={item.id} onClick={() => setSelectedId(item.id)}><WarningCircle size={17} /><span><strong>{item.title}</strong><small>{item.source}</small></span><CaretRight size={15} /></button>)}{resolved.map((item) => <button className={selected?.id === item.id ? "active resolved" : "resolved"} key={item.id} onClick={() => setSelectedId(item.id)}><CheckCircle size={17} color="#4f9d76" /><span><strong>{item.title}</strong><small style={{color:'#4f9d76'}}>已处理 · {item.source}</small></span><CaretRight size={15} /></button>)}{!pending.length && !resolved.length ? <div className="queue-empty"><CheckCircle size={24} /><strong>暂无待确认问题</strong><span>仍可录入新的业务确认。</span></div> : null}<button className={selectedId === "general" ? "active general-feedback" : "general-feedback"} onClick={() => setSelectedId("general")}><Plus size={17} /><span><strong>其他补充</strong><small>新增事实、口径或行动进展</small></span><CaretRight size={15} /></button></section><section className="validation-detail"><header><div><h2>第二步：录入人工确认</h2><p>{selected?.title || "补充新信息"}</p></div></header>{selected ? <><div className="detail-block"><span>问题说明</span><p>{selected.description}</p></div><div className="detail-block"><span>证据位置</span><p>{selected.source || "未记录"}</p></div></> : <div className="detail-block"><span>适用场景</span><p>补充首次分析未覆盖的新事实、指标口径、业务确认或行动进展。</p></div>}<label className="field-label">确认结果<textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="填写确认的事实、口径、原因或行动进展。提交后保存到 validation 目录。" /></label><div className="detail-actions"><AppButton icon={<UploadSimple size={16} />} onClick={async () => { refresh(await api.pickFiles(task.id, "validation")); notify("附件已加入验证区"); }}>上传附件</AppButton><AppButton tone="primary" disabled={!feedback.trim()} onClick={submit}>保存确认结果</AppButton></div><div className="reanalysis-gate"><div><strong>第三步（按需）：重分析</strong><span>只有新增事实会改变报告结论时才执行。</span></div><div className="inline-actions"><AppButton icon={<Robot size={15} />} onClick={previewOnly}>预览调度单</AppButton><AppButton icon={<ArrowClockwise size={15} />} onClick={dispatch}>发起重分析并复制</AppButton><AppButton tone="primary" icon={<Sparkle size={15} />} disabled={!canAiExecute} onClick={executeReanalysis} title={!aiInstalled?.installed ? "需要安装 WorkBuddy" : aiRunning ? "AI 正在执行中" : "直接调用 WorkBuddy AI 引擎执行重分析"}>✨ 直接执行重分析{!aiInstalled?.installed ? "（未安装）" : ""}</AppButton></div></div>{aiPanelOpen || aiRunning ? <AIStreamPanel events={aiEvents} state={aiState} onCancel={() => { aiCancel(); setAiPanelOpen(false); }} title="AI 直连重分析" /> : null}<PromptPreviewPanel content={promptPreview} source={previewSource} onClose={() => setPromptPreview("")} /></section><ReceiptPane task={task} onReveal={() => api.revealPath(`${task.path}/outputs`)} onRefresh={async () => refresh(await api.getTask(task.id))} /></div></div>;
 }
 
 function DeliveryStage({ task, refresh, notify }: { task: TaskDetail; refresh: (task: TaskDetail) => void; notify: (m: string) => void }) {

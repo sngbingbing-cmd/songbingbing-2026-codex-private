@@ -87,6 +87,7 @@ function getSpawnEnv() {
 }
 
 // ── State ────────────────────────────────────────────────────
+let activePermissionMode = 'bypassPermissions';
 let activeProcess = null;
 let activeTaskId = null;
 let collectedOutput = '';
@@ -138,8 +139,10 @@ function execute(taskId, prompt, options = {}) {
 
   const cliPath = installInfo.cliPath;
   const maxTurns = options.maxTurns || MAX_TURNS_DEFAULT;
-  const permissionMode = options.permissionMode || 'acceptEdits';
+  const permissionMode = options.permissionMode || 'bypassPermissions';
+  activePermissionMode = permissionMode;
   const model = options.model || 'auto';
+  const kind = options.kind || 'analysis';
 
   const workspacePath = workspaceServiceRef ? workspaceServiceRef.workspacePath : '';
   const addDirs = [workspacePath];
@@ -209,11 +212,11 @@ function execute(taskId, prompt, options = {}) {
       log.info(`[ai-executor] process exited with code ${code}`);
       const wasCancelled = activeProcess === null;
       if (!wasCancelled && code === 0) {
-        saveResults(taskId, collectedOutput);
+        saveResults(taskId, collectedOutput, false, kind);
         sendToRenderer('ai:on-complete', { taskId, outputLength: collectedOutput.length, exitCode: code });
       } else if (!wasCancelled) {
         sendToRenderer('ai:on-error', { taskId, error: `AI 执行异常退出（code ${code}）`, stderr: stderrBuffer.slice(0, 500) });
-        if (collectedOutput.trim()) saveResults(taskId, collectedOutput, true);
+        if (collectedOutput.trim()) saveResults(taskId, collectedOutput, true, kind);
       }
       activeProcess = null;
       activeTaskId = null;
@@ -262,31 +265,53 @@ function handleStreamEvent(taskId, event) {
 }
 
 function extractContent(event) {
-  if (event.content) return event.content;
-  if (event.message) return event.message;
-  if (event.text) return event.text;
-  if (event.result) { if (typeof event.result === 'string') return event.result; if (event.result.content) return event.result.content; }
-  if (event.tool_result?.content) { const c = event.tool_result.content; return typeof c === 'string' ? c : JSON.stringify(c); }
-  if (event.tool_use) return `🔧 使用工具：${event.tool_use.name || event.tool_name || 'unknown'}`;
-  return JSON.stringify(event).slice(0, 200);
+  let raw = null;
+  if (event.content) raw = event.content;
+  else if (event.message) raw = event.message;
+  else if (event.text) raw = event.text;
+  else if (event.result) { raw = typeof event.result === 'string' ? event.result : event.result.content; }
+  else if (event.tool_result?.content) { raw = event.tool_result.content; }
+  else if (event.tool_use) return `🔧 使用工具：${event.tool_use.name || event.tool_name || 'unknown'}`;
+  else return JSON.stringify(event).slice(0, 200);
+
+  // codebuddy stream-json: assistant content is often an array of
+  // { type: "text", text: "..." } blocks (Claude API format), not a plain
+  // string. Returning a non-string here crashes the React renderer (white
+  // screen) because React cannot render arbitrary objects.
+  if (typeof raw === 'string') return raw;
+  if (Array.isArray(raw)) {
+    return raw.map((block) => {
+      if (typeof block === 'string') return block;
+      if (block?.text) return block.text;
+      if (block?.content) return typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
+      return JSON.stringify(block);
+    }).join('');
+  }
+  if (raw && typeof raw === 'object') {
+    if (raw.text) return String(raw.text);
+    if (raw.content) return typeof raw.content === 'string' ? raw.content : JSON.stringify(raw.content);
+    return JSON.stringify(raw);
+  }
+  return String(raw);
 }
 
 function sendToRenderer(channel, data) {
   if (mainWindowRef && !mainWindowRef.isDestroyed()) mainWindowRef.webContents.send(channel, data);
 }
 
-function saveResults(taskId, output, isPartial = false) {
+function saveResults(taskId, output, isPartial = false, kind = 'analysis') {
   if (!workspaceServiceRef) { log.error('[ai-executor] no workspaceService, cannot save results'); return; }
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const outputFileName = `${taskId}_${isPartial ? 'partial' : '首次分析'}_${timestamp}.md`;
+  const kindLabel = kind === 'reanalysis' ? '重分析' : '首次分析';
+  const outputFileName = `${taskId}_${isPartial ? 'partial' : kindLabel}_${timestamp}.md`;
   const outputRelPath = `04-分析任务/${taskId}/outputs/${outputFileName}`;
   try {
     workspaceServiceRef.saveFile(outputRelPath, collectedOutput);
     log.info(`[ai-executor] saved output: ${outputRelPath}`);
-    const receiptData = { kind: 'analysis', source: 'ai-executor-codebuddy', status: isPartial ? 'partial' : 'completed', summary: `AI 直连执行${isPartial ? '（部分输出）' : ''}，输出 ${collectedOutput.length} 字符`, outputFile: outputRelPath, completedAt: new Date().toISOString(), engineInfo: { type: 'codebuddy-cli', version: 'v2.103.3', maxTurns: MAX_TURNS_DEFAULT, permissionMode: 'acceptEdits' } };
+    const receiptData = { kind, source: 'ai-executor-codebuddy', status: isPartial ? 'partial' : 'completed', summary: `AI 直连${kindLabel}执行${isPartial ? '（部分输出）' : ''}，输出 ${collectedOutput.length} 字符`, outputFile: outputRelPath, completedAt: new Date().toISOString(), engineInfo: { type: 'codebuddy-cli', version: 'v2.103.3', maxTurns: MAX_TURNS_DEFAULT, permissionMode: activePermissionMode } };
     workspaceServiceRef.writeReceipt(taskId, receiptData);
     log.info(`[ai-executor] saved receipt for task ${taskId}`);
-    const dispatchData = { kind: 'analysis', title: `${taskId} AI直连分析`, prompt: '(调度单已通过 stdin 传入 codebuddy CLI)', status: isPartial ? 'partial_receipt' : 'completed_receipt', executedVia: 'ai-executor', createdAt: new Date().toISOString() };
+    const dispatchData = { kind, title: `${taskId} AI直连${kindLabel}`, prompt: '(调度单已通过 stdin 传入 codebuddy CLI)', status: isPartial ? 'partial_receipt' : 'completed_receipt', executedVia: 'ai-executor', createdAt: new Date().toISOString() };
     workspaceServiceRef.writeDispatch(taskId, dispatchData);
     log.info(`[ai-executor] saved dispatch record for task ${taskId}`);
   } catch (err) { log.error(`[ai-executor] save results failed: ${err.message}`); }
