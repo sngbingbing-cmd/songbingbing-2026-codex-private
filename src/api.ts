@@ -1,5 +1,5 @@
 import { mockDetail, mockExternalSources, mockSnapshot } from "./mock";
-import type { AppSnapshot, DomainSkill, ExternalSourceInfo, TaskDetail, WorkbenchApi } from "./types";
+import type { AIInstallationInfo, AIStreamEvent, AIExecutionResult, AppSnapshot, DomainSkill, ExternalSourceInfo, TaskDetail, WorkbenchApi } from "./types";
 
 const wait = (ms = 180) => new Promise((resolve) => setTimeout(resolve, ms));
 let snapshot: AppSnapshot = structuredClone(mockSnapshot);
@@ -100,6 +100,14 @@ const mockApi: WorkbenchApi = {
   async unlinkExternalSource(_id, sourcePath) { await wait(); externalSources = externalSources.filter((item) => item.path !== sourcePath); return { ok: true }; },
   async revealExternalSource(_id, _sourcePath) { await wait(); },
   async pickDirectory() { await wait(); return "/Users/demo/Desktop/19人上半年材料"; },
+  // AI Executor
+  async checkAiInstallation() { await wait(); return { installed: false, cliPath: null, platform: 'unknown' }; },
+  async executeAiAnalysis(_taskId, _prompt, _options) { await wait(); return { started: false, taskId: _taskId }; },
+  async cancelAiExecution() { await wait(); return { cancelled: false }; },
+  onAiEvent(_callback: (event: AIStreamEvent) => void) { /* mock: no real events */ },
+  onAiComplete(_callback: (result: AIExecutionResult) => void) { /* mock */ },
+  onAiError(_callback: (error: { taskId: string; error: string; stderr?: string; partialOutput?: string }) => void) { /* mock */ },
+  removeAiListeners() { /* mock */ },
 };
 
 export const api: WorkbenchApi = window.workbench || mockApi;

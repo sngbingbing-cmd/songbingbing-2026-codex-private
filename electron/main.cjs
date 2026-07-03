@@ -8,6 +8,7 @@ const {
 const path = require('path');
 const log = require('electron-log');
 const { WorkspaceService } = require('./workspace-service.cjs');
+const aiExecutor = require('./ai-executor.cjs');
 const { version } = require('../package.json');
 
 // ── Logging ──────────────────────────────────────────────────────
@@ -96,6 +97,8 @@ IPC_HANDLERS['workspace:init'] = async () => {
   workspaceService = new WorkspaceService(workspacePath);
 
   log.info(`Workspace initialized at: ${workspaceService.workspacePath}`);
+  // Update ai-executor with workspaceService reference
+  aiExecutor.init(mainWindow, workspaceService);
   return asResult(workspaceService.getInfo({ includeFileDetails: true }));
 };
 
@@ -118,6 +121,8 @@ IPC_HANDLERS['workspace:select'] = async () => {
   }
   workspaceService = new WorkspaceService(selectedPath);
   log.info(`Workspace switched to: ${workspaceService.workspacePath}`);
+  // Update ai-executor with new workspaceService
+  aiExecutor.init(mainWindow, workspaceService);
   return asResult(workspaceService.getInfo({ includeFileDetails: true }));
 };
 
@@ -491,6 +496,20 @@ IPC_HANDLERS['app:version'] = async () => {
   return asResult({ version });
 };
 
+// AI Executor
+IPC_HANDLERS['ai:check-installation'] = async () => {
+  return asResult(aiExecutor.checkInstallation());
+};
+
+IPC_HANDLERS['ai:execute'] = async (_event, taskId, prompt, options) => {
+  if (!workspaceService) return asError(new Error('Workspace not initialized'));
+  return asResult(aiExecutor.execute(taskId, prompt, options || {}));
+};
+
+IPC_HANDLERS['ai:cancel'] = async () => {
+  return asResult(aiExecutor.cancel());
+};
+
 // ── Registration ──────────────────────────────────────────────────
 
 function registerIpcHandlers() {
@@ -545,6 +564,9 @@ app.whenReady().then(() => {
   createWindow();
   registerIpcHandlers();
   setupAutoUpdater();
+
+  // Initialize AI executor after window is created
+  aiExecutor.init(mainWindow, workspaceService);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

@@ -7,7 +7,7 @@ import {
   WarningCircle, X
 } from "@phosphor-icons/react";
 import { api } from "./api";
-import type { AppSnapshot, DomainSkill, ExternalSourceInfo, FileEntry, GlobalView, PromptDraft, SemanticCandidate, SemanticSnapshot, StageId, TaskDetail, TaskSummary } from "./types";
+import type { AIExecutionState, AIInstallationInfo, AIStreamEvent, AppSnapshot, DomainSkill, ExternalSourceInfo, FileEntry, GlobalView, PromptDraft, SemanticCandidate, SemanticSnapshot, StageId, TaskDetail, TaskSummary } from "./types";
 import { findIncompleteItems, isIncompleteValue, parseMarkdownTable, updateMarkdownTableCell } from "./semantic-table-utils";
 
 const STAGES: Array<{ id: StageId; number: string; title: string; subtitle: string }> = [
@@ -144,12 +144,16 @@ function ContextPane({ task, onPick, skills, onSetSkill }: { task: TaskDetail; o
   </section>;
 }
 
-function AnalysisEditor({ task, promptPreview, previewSource, onCopy, onDispatch, onSave, activeSkill }: { task: TaskDetail; promptPreview: string; previewSource: "copy" | "dispatch" | null; onCopy: (draft: PromptDraft) => void; onDispatch: (draft: PromptDraft) => void; onSave: (draft: PromptDraft) => void; activeSkill?: DomainSkill }) {
+function AnalysisEditor({ task, promptPreview, previewSource, onCopy, onDispatch, onSave, activeSkill, aiState, aiEvents, aiInstalled, onAiExecute, onAiCancel }: { task: TaskDetail; promptPreview: string; previewSource: "copy" | "dispatch" | null; onCopy: (draft: PromptDraft) => void; onDispatch: (draft: PromptDraft) => void; onSave: (draft: PromptDraft) => void; activeSkill?: DomainSkill; aiState: AIExecutionState; aiEvents: AIStreamEvent[]; aiInstalled: AIInstallationInfo | null; onAiExecute: (draft: PromptDraft) => void; onAiCancel: () => void }) {
   const [goal, setGoal] = useState("基于提供的资料，完成示例经营单元的首次分析，形成初版报告、关键结论、证据和待验证问题。");
   const [thinking, setThinking] = useState("从结构、趋势、异常、对比四个维度展开；主动寻找反例与替代解释；结合历史口径变化，关注指标一致性与可比性。");
   const [verification, setVerification] = useState("严格使用资料所载口径与单位；无法判断的内容明确标注并提出补充；关键结论必须注明来源文件与行/列。");
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const draft = (): PromptDraft => ({ goal, thinking, verification });
   const skillLabel = activeSkill ? `${activeSkill.name}（${activeSkill.domain} v${activeSkill.version}）` : '通用经营分析（未选择Skill）';
+  const canAiExecute = aiInstalled?.installed && aiState === "idle";
+  const aiRunning = aiState === "running";
+
   return <section className="editor-pane pane">
     <header className="editor-head"><div><h2>首次分析调度单</h2><p>生成时间：{new Date().toLocaleString('zh-CN')}　任务：{task.name}</p></div><div><AppButton tone="ghost">模板</AppButton><AppButton tone="ghost">清空</AppButton><AppButton tone="ghost" icon={<Copy size={14} />} onClick={() => onCopy(draft())}>复制</AppButton><AppButton tone="ghost" onClick={() => onSave(draft())}>保存草稿</AppButton></div></header>
     <div className="editor-scroll">
@@ -160,9 +164,43 @@ function AnalysisEditor({ task, promptPreview, previewSource, onCopy, onDispatch
       <PromptSection number="4" title="校验与验证要求"><textarea value={verification} onChange={(event) => setVerification(event.target.value)} /></PromptSection>
       <PromptSection number="5" title="03 分析输出（四件套在 04 收工补齐）"><div className="output-checks"><label><input type="checkbox" defaultChecked />Markdown 初版报告</label><label><input type="checkbox" defaultChecked />关键结论与证据</label><label><input type="checkbox" defaultChecked />待验证问题</label><label><input type="checkbox" defaultChecked />执行回执</label></div></PromptSection>
     </div>
-    <div className="dispatch-difference"><div><strong>两个按钮使用同一份提示词</strong><span>复制调度单：只复制，不改变任务状态。</span></div><div><span>开始外部分析：复制提示词，同时登记为“等待外部 Agent 回执”。</span></div></div>
+    <div className="dispatch-difference"><div><strong>三个按钮使用同一份提示词</strong><span>复制调度单：只复制，不改变任务状态。</span></div><div><span>开始外部分析：复制提示词，同时登记为"等待外部 Agent 回执"。</span></div><div><span>✨ 直接执行：调用本地 WorkBuddy AI 引擎，自动写入结果。需安装 WorkBuddy。</span></div></div>
     {promptPreview ? <section className="analysis-prompt-preview"><header><div><strong>调度单预览</strong><span>{previewSource === "dispatch" ? "已登记外部分析，等待回执" : "仅预览并复制，尚未登记执行"}</span></div><AppButton icon={<Copy size={14} />} onClick={async () => navigator.clipboard.writeText(promptPreview)}>再次复制</AppButton></header><pre>{promptPreview}</pre></section> : null}
-    <footer className="editor-actions"><AppButton icon={<Copy size={16} />} onClick={() => onCopy(draft())}>复制调度单并预览</AppButton><AppButton tone="primary" icon={<Robot size={17} />} onClick={() => onDispatch(draft())}>开始外部分析并预览</AppButton></footer>
+    {aiPanelOpen || aiRunning ? <AIStreamPanel events={aiEvents} state={aiState} onCancel={onAiCancel} /> : null}
+    <footer className="editor-actions">
+      <AppButton icon={<Copy size={16} />} onClick={() => onCopy(draft())}>复制调度单并预览</AppButton>
+      <AppButton tone="primary" icon={<Robot size={17} />} onClick={() => onDispatch(draft())}>开始外部分析并预览</AppButton>
+      <AppButton
+        tone="primary"
+        icon={<Sparkle size={17} />}
+        disabled={!canAiExecute}
+        onClick={() => { onAiExecute(draft()); setAiPanelOpen(true); }}
+        title={!aiInstalled?.installed ? "需要安装 WorkBuddy 才能使用 AI 直连" : aiRunning ? "AI 正在执行中" : "直接调用 WorkBuddy AI 引擎执行分析"}
+      >✨ 直接执行{!aiInstalled?.installed ? "（未安装）" : ""}</AppButton>
+    </footer>
+  </section>;
+}
+
+function AIStreamPanel({ events, state, onCancel }: { events: AIStreamEvent[]; state: AIExecutionState; onCancel: () => void }) {
+  const scrollRef = useState<HTMLDivElement | null>(null);
+  const lastEvents = events.slice(-50); // Keep last 50 events for display
+  const statusLabel = state === "running" ? "AI 执行中…" : state === "completed" ? "执行完成" : state === "error" ? "执行失败" : state === "cancelled" ? "已取消" : "就绪";
+  const statusColor = state === "running" ? "#4f9d76" : state === "completed" ? "#4f9d76" : state === "error" ? "#c44" : state === "cancelled" ? "#7b8b94" : "#7b8b94";
+
+  return <section className="ai-stream-panel">
+    <header className="ai-stream-head">
+      <div><Sparkle size={18} color={statusColor} /><strong>AI 直连执行</strong><span style={{ color: statusColor }}>{statusLabel}</span></div>
+      {state === "running" ? <AppButton tone="danger" onClick={onCancel}>取消执行</AppButton> : null}
+    </header>
+    <div className="ai-stream-scroll" ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
+      {lastEvents.length === 0 ? <div className="ai-stream-empty">等待 AI 响应…</div> : lastEvents.map((event, index) => <div key={index} className={`ai-stream-event ai-event-${event.type}`}>
+        {event.type === "assistant" ? <><Robot size={14} color="#4f9d76" /><div className="ai-event-content">{event.content}</div></>
+        : event.type === "tool_use" ? <><span className="ai-tool-icon">🔧</span><div className="ai-event-content"><em>{event.toolName || event.content}</em></div></>
+        : event.type === "tool_result" ? <><span className="ai-tool-icon">📋</span><div className="ai-event-content"><small>{event.content.slice(0, 200)}{event.content.length > 200 ? '…' : ''}</small></div></>
+        : event.type === "system" ? <><span className="ai-system-icon">⚙️</span><div className="ai-event-content"><small style={{color:'#7b8b94'}}>{event.content}</small></div></>
+        : <><span className="ai-raw-icon">📝</span><div className="ai-event-content">{event.content}</div></>}
+      </div>)}
+    </div>
   </section>;
 }
 
@@ -186,12 +224,72 @@ function ReceiptPane({ task, onReveal, onRefresh }: { task: TaskDetail; onReveal
 
 function AnalysisStage({ task, notify, refresh, skills, onSetSkill }: { task: TaskDetail; notify: (message: string) => void; refresh: (task: TaskDetail) => void; skills: DomainSkill[]; onSetSkill: (skillId: string | null) => Promise<void> }) {
   const [promptPreview, setPromptPreview] = useState(""); const [previewSource, setPreviewSource] = useState<"copy" | "dispatch" | null>(null);
+  const [aiState, setAiState] = useState<AIExecutionState>("idle");
+  const [aiEvents, setAiEvents] = useState<AIStreamEvent[]>([]);
+  const [aiInstalled, setAiInstalled] = useState<AIInstallationInfo | null>(null);
+
+  // Check WorkBuddy installation on mount
+  useEffect(() => {
+    api.checkAiInstallation().then(setAiInstalled).catch(() => setAiInstalled({ installed: false, cliPath: null, platform: 'unknown' }));
+  }, []);
+
+  // Register AI event listeners
+  useEffect(() => {
+    api.onAiEvent((event: AIStreamEvent) => {
+      if (event.taskId !== task.id) return;
+      setAiEvents((prev) => [...prev, event]);
+      if (event.type === 'system' && event.subtype === 'started') setAiState("running");
+      if (event.type === 'system' && event.subtype === 'cancelled') setAiState("cancelled");
+    });
+    api.onAiComplete((result) => {
+      if (result.taskId !== task.id) return;
+      setAiState("completed");
+      notify("AI 直连分析完成，结果已自动写入 outputs/");
+      // Refresh task to show new output files
+      api.getTask(task.id).then(refresh);
+    });
+    api.onAiError((error) => {
+      if (error.taskId !== task.id) return;
+      setAiState("error");
+      notify(`AI 执行失败：${error.error}`);
+    });
+    return () => { api.removeAiListeners(); };
+  }, [task.id]);
+
   const copyPrompt = async (draft: PromptDraft) => { const prompt = await api.generatePrompt(task.id, "analysis", draft); setPromptPreview(prompt); setPreviewSource("copy"); try { await navigator.clipboard.writeText(prompt); notify("首次分析调度单已复制并显示预览"); } catch { notify("已显示调度单预览，可点击预览区再次复制"); } };
   const dispatchPrompt = async (draft: PromptDraft) => { const prompt = await api.dispatchPrompt(task.id, "analysis", draft); setPromptPreview(prompt); setPreviewSource("dispatch"); refresh(await api.getTask(task.id)); try { await navigator.clipboard.writeText(prompt); notify("调度单已复制并登记执行，等待外部 Agent 回执"); } catch { notify("已登记执行并显示预览，请从预览区复制调度单"); } };
   const refreshReceipt = async () => { refresh(await api.getTask(task.id)); notify("执行状态已刷新"); };
   const saveDraft = async (draft: PromptDraft) => { await api.saveFile(`${task.path}/notes/prompt-draft.json`, JSON.stringify(draft, null, 2)); notify("调度单草稿已保存"); };
+
+  // AI direct execution
+  const executeAi = async (draft: PromptDraft) => {
+    setAiState("checking");
+    setAiEvents([]);
+    try {
+      const prompt = await api.generatePrompt(task.id, "analysis", draft);
+      setPromptPreview(prompt);
+      const result = await api.executeAiAnalysis(task.id, prompt, { maxTurns: 10, permissionMode: 'acceptEdits' });
+      if (result.started) {
+        setAiState("running");
+        notify("AI 引擎已启动");
+      } else {
+        setAiState("error");
+        notify("AI 引擎启动失败");
+      }
+    } catch (error: any) {
+      setAiState("error");
+      notify(error.message || "AI 执行失败");
+    }
+  };
+
+  const cancelAi = async () => {
+    await api.cancelAiExecution();
+    setAiState("cancelled");
+    notify("AI 执行已取消");
+  };
+
   const activeSkill = skills.find((s) => s.id === task.skillId);
-  return <div className="analysis-canvas"><ContextPane task={task} onPick={async () => refresh(await api.pickFiles(task.id, "raw"))} skills={skills} onSetSkill={async (sid) => { onSetSkill(sid); refresh(await api.getTask(task.id)); }} /><div className="resize-handle" /><AnalysisEditor task={task} promptPreview={promptPreview} previewSource={previewSource} onCopy={copyPrompt} onDispatch={dispatchPrompt} onSave={saveDraft} activeSkill={activeSkill} /><div className="resize-handle" /><ReceiptPane task={task} onReveal={() => api.revealPath(`${task.path}/outputs`)} onRefresh={refreshReceipt} /></div>;
+  return <div className="analysis-canvas"><ContextPane task={task} onPick={async () => refresh(await api.pickFiles(task.id, "raw"))} skills={skills} onSetSkill={async (sid) => { onSetSkill(sid); refresh(await api.getTask(task.id)); }} /><div className="resize-handle" /><AnalysisEditor task={task} promptPreview={promptPreview} previewSource={previewSource} onCopy={copyPrompt} onDispatch={dispatchPrompt} onSave={saveDraft} activeSkill={activeSkill} aiState={aiState} aiEvents={aiEvents} aiInstalled={aiInstalled} onAiExecute={executeAi} onAiCancel={cancelAi} /><div className="resize-handle" /><ReceiptPane task={task} onReveal={() => api.revealPath(`${task.path}/outputs`)} onRefresh={refreshReceipt} /></div>;
 }
 
 function OverviewStage({ task, setStage }: { task: TaskDetail; setStage: (stage: StageId) => void }) {

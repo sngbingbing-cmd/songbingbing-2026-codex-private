@@ -372,6 +372,30 @@ const workbench = {
   async installUpdate() {
     await invoke('update:install');
   },
+  // AI Executor
+  async checkAiInstallation() {
+    return invoke('ai:check-installation');
+  },
+  async executeAiAnalysis(taskId, prompt, options) {
+    return invoke('ai:execute', taskId, prompt, options);
+  },
+  async cancelAiExecution() {
+    return invoke('ai:cancel');
+  },
+  onAiEvent(callback) {
+    ipcRenderer.on('ai:on-event', (_event, data) => callback(data));
+  },
+  onAiComplete(callback) {
+    ipcRenderer.on('ai:on-complete', (_event, data) => callback(data));
+  },
+  onAiError(callback) {
+    ipcRenderer.on('ai:on-error', (_event, data) => callback(data));
+  },
+  removeAiListeners() {
+    ipcRenderer.removeAllListeners('ai:on-event');
+    ipcRenderer.removeAllListeners('ai:on-complete');
+    ipcRenderer.removeAllListeners('ai:on-error');
+  },
 };
 
 contextBridge.exposeInMainWorld('workbench', workbench);

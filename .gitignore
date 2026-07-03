@@ -8,6 +8,9 @@ release/
 !.env.example
 design/*.png
 
+# Root-level main.cjs is a stray copy of electron/main.cjs — keep it out.
+/main.cjs
+
 # Never commit local business workspaces or task data.
 AI原生数据分析工作台/
 **/01-投喂区/*

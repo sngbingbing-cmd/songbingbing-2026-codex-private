@@ -106,6 +106,30 @@ export interface PromptDraft {
   verification: string;
 }
 
+// ── AI Executor ────────────────────────────────────────────
+export type AIExecutionState = "idle" | "checking" | "running" | "completed" | "error" | "cancelled";
+
+export interface AIStreamEvent {
+  taskId: string;
+  type: string;          // "assistant" | "tool_use" | "tool_result" | "system" | "raw_text" | "result"
+  subtype?: string | null; // "started" | "cancelled" etc.
+  content: string;
+  toolName?: string | null;
+}
+
+export interface AIExecutionResult {
+  taskId: string;
+  outputLength: number;
+  exitCode: number;
+}
+
+export interface AIInstallationInfo {
+  installed: boolean;
+  cliPath: string | null;
+  platform: string;
+  appPath?: string | null;
+}
+
 // ── Domain Skill ──────────────────────────────────────────────
 export interface SkillCapability {
   id: string;       // e.g. "dataAnalysis"
@@ -168,6 +192,14 @@ export interface WorkbenchApi {
   setTaskSkill(taskId: string, skillId: string | null): Promise<TaskDetail>;
   precipitateSkill(taskId: string, skillDraft: { name: string; description: string; domain: string }): Promise<{ prompt: string }>;
   savePrecipitatedSkill(taskId: string, skillContent: string): Promise<DomainSkill>;
+  // AI Executor
+  checkAiInstallation(): Promise<AIInstallationInfo>;
+  executeAiAnalysis(taskId: string, prompt: string, options?: Record<string, unknown>): Promise<{ started: boolean; taskId: string }>;
+  cancelAiExecution(): Promise<{ cancelled: boolean; taskId?: string }>;
+  onAiEvent(callback: (event: AIStreamEvent) => void): void;
+  onAiComplete(callback: (result: AIExecutionResult) => void): void;
+  onAiError(callback: (error: { taskId: string; error: string; stderr?: string; partialOutput?: string }) => void): void;
+  removeAiListeners(): void;
 }
 
 declare global {
